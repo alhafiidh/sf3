@@ -1,0 +1,3135 @@
+local vu1 = game:GetService("Players")
+local vu2 = game:GetService("HttpService")
+local vu3 = game:GetService("TweenService")
+local vu4 = game:GetService("RunService")
+local vu5 = game:GetService("ReplicatedStorage")
+
+local player = vu1.LocalPlayer
+while not player do
+    task.wait(1)
+    player = vu1.LocalPlayer
+end
+
+local vu16 = player.Name
+
+if game.GameId ~= 7671049560 then
+    warn("脚本仅适用于游戏ID: 7671049560。当前游戏ID: " .. tostring(game.GameId))
+    return
+end
+
+local vu6 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("ProximityService"):WaitForChild("RF"):WaitForChild("Purchase")
+local vu7 = nil
+
+local uiLibrarySources = {
+    "https://github.com/biggaboy212/Maclib/releases/latest/download/maclib.txt"
+}
+
+local v8, v9 = false, "未尝试加载"
+for _, source in pairs(uiLibrarySources) do
+    v8, v9 = pcall(function()
+        vu7 = loadstring(game:HttpGet(source, true))()
+    end)
+    if v8 and vu7 then
+        break
+    end
+    task.wait(1)
+end
+
+if not (v8 and vu7) then
+    warn("加载UI库(MacLib)时出错，尝试备用方案: " .. tostring(v9))
+    
+    local success, simpleUI = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/-back-ups-for-libs/main/simple"))()
+    end)
+    
+    if success and simpleUI then
+        vu7 = simpleUI
+        v8 = true
+        warn("已加载备用UI库")
+    else
+        warn("备用UI库也加载失败")
+        return
+    end
+end
+
+local screenSize = workspace.CurrentCamera.ViewportSize
+local uiScale = math.min(screenSize.X / 1920, screenSize.Y / 1080)
+local uiWidth = math.floor(720 * uiScale)
+local uiHeight = math.floor(500 * uiScale)
+
+local DefaultConfig = {
+    SelectedRockType = {},
+    AutoMineEnabled = false,
+    SelectedEnemyType = {},
+    SelectedDistance = 6,
+    AutoFarmEnemyEnabled = false,
+    SelectedMineDistance = 6,
+    SelectedPotionName = {},
+    AutoBuyAndUsePotionEnabled = false,
+    SelectedItemName = {},
+    AutoSellItemEnabled = false,
+    AntiAFKEnabled = true,
+    ESPRockEnabled = false,
+    ESPEnemyEnabled = false,
+    ESPPlayerEnabled = false,
+    MineTweenSpeed = 35,
+    EnemyTweenSpeed = 35,
+    UIBlurEnabled = true,
+    NotificationsEnabled = true,
+    ShowUserInfo = true,
+    EnemyFarmingMode = 1
+}
+
+local vu15 = {
+    FileName = "ChinaScriptTheForgeConfig_" .. vu16 .. ".json",
+    DefaultConfig = DefaultConfig,
+    CurrentConfig = {},
+    SaveConfig = function(self)
+        local success, errorMsg = pcall(function()
+            if not self.FileName or self.FileName == "" then
+                self.FileName = "ChinaScriptTheForgeConfig_" .. vu16 .. ".json"
+            end
+            
+            if writefile and vu2.JSONEncode then
+                writefile(self.FileName, vu2:JSONEncode(self.CurrentConfig))
+            else
+                warn("缺少必要的函数: writefile 或 JSONEncode")
+            end
+        end)
+        if not success then
+            warn("保存配置失败:", errorMsg)
+            if self.CurrentConfig then
+                self.CurrentConfig = table.clone(DefaultConfig)
+            end
+        else
+            print("配置保存成功:", self.FileName)
+        end
+    end,
+    LoadConfig = function(self)
+        local success, fileContent = pcall(function()
+            if isfile and isfile(self.FileName) then
+                return readfile(self.FileName)
+            else
+                return nil
+            end
+        end)
+        
+        if success and fileContent and fileContent ~= "" then
+            local decodeSuccess, decoded = pcall(function()
+                return vu2:JSONDecode(fileContent)
+            end)
+            if decodeSuccess and decoded then
+                for key, value in pairs(DefaultConfig) do
+                    if decoded[key] == nil then
+                        decoded[key] = value
+                    end
+                end
+                self.CurrentConfig = decoded
+                print("配置加载成功")
+            else
+                print("配置解码失败，使用默认配置")
+                self.CurrentConfig = table.clone(DefaultConfig)
+                pcall(function() self:SaveConfig() end)
+            end
+        else
+            print("配置文件不存在或读取失败，使用默认配置")
+            self.CurrentConfig = table.clone(DefaultConfig)
+            pcall(function() self:SaveConfig() end)
+        end
+    end
+}
+
+local loadSuccess, loadError = pcall(function()
+    vu15:LoadConfig()
+end)
+
+if not loadSuccess then
+    warn("加载配置失败:", loadError)
+    vu15.CurrentConfig = table.clone(DefaultConfig)
+    pcall(function() vu15:SaveConfig() end)
+end
+
+local v17 = vu7
+local vu18 = vu7.Window(v17, {
+    Title = "人民的脚本 | The Forge",
+    Subtitle = "脚本交流群1038550458",
+    Size = UDim2.fromOffset(uiWidth, uiHeight),
+    DragStyle = 1,
+    DisabledWindowControls = {},
+    ShowUserInfo = true,
+    Keybind = Enum.KeyCode.LeftAlt,
+    AcrylicBlur = true
+})
+
+local function vu22(p19, p20, p21)
+    if vu18 and vu18.Notify then
+        vu18:Notify({
+            Title = p19 or vu18.Settings.Title,
+            Description = p20 or "",
+            Lifetime = p21 or 4
+        })
+    else
+        print("[通知]", tostring(p19), tostring(p20))
+    end
+end
+
+local v23 = vu7
+if vu7.SetFolder then
+    vu7.SetFolder(v23, "ChinaScriptTheForge")
+end
+
+local v24 = vu18
+local v25 = vu18.TabGroup(v24)
+
+local v26 = {
+    Farm = v25:Tab({
+        Name = "挖矿",
+        Image = "rbxassetid://10734923549"
+    }),
+    Shop = v25:Tab({
+        Name = "商店",
+        Image = "rbxassetid://10734952273"
+    }),
+    Teleport = v25:Tab({
+        Name = "传送",
+        Image = "rbxassetid://10747381992"
+    }),
+    Settings = v25:Tab({
+        Name = "设置",
+        Image = "rbxassetid://10734950309"
+    })
+}
+
+local ChineseTranslations = {
+    ["Stone"] = "石头",
+    ["Sand Stone"] = "砂石",
+    ["Copper"] = "铜矿",
+    ["Iron"] = "铁矿",
+    ["Tin"] = "锡矿",
+    ["Silver"] = "银矿",
+    ["Gold"] = "金矿",
+    ["Mushroomith"] = "蘑菇石",
+    ["Platinum"] = "铂金矿",
+    ["Bananite"] = "香蕉石",
+    ["Cardboardite"] = "纸板矿石",
+    ["Aite"] = "不知道叫啥",
+    ["Poopite"] = "粪矿",
+    ["Cobalt"] = "钴矿",
+    ["Titanium"] = "钛矿",
+    ["Volcanic Rock"] = "火山岩",
+    ["Lapis Lazuli"] = "琉璃矿",
+    ["Quartz"] = "石英",
+    ["Amethyst"] = "紫水晶矿石",
+    ["Topaz"] = "黄玉",
+    ["Diamond"] = "钻石",
+    ["Sapphire"] = "蓝宝石",
+    ["Cuprite"] = "杯矿",
+    ["Obsidian"] = "黑曜石",
+    ["Emerald"] = "翡翠",
+    ["Ruby"] = "红宝石",
+    ["Rivalite"] = "竞争矿石",
+    ["Uranium"] = "铀矿",
+    ["Myhril"] = "迈瑞尔矿石",
+    ["Eye Ore"] = "猫眼矿",
+    ["Fireite"] = "火焰石",
+    ["Magmaite"] = "岩浆石",
+    ["Lightite"] = "轻石",
+    ["Demonite"] = "恶魔石",
+    ["Darkryte"] = "黑石",
+    ["Blue Crystal"] = "蓝水晶",
+    ["Orange Crystal"] = "橙水晶",
+    ["Green Crystal"] = "绿水晶",
+    ["Magenta Crystal"] = "紫水晶",
+    ["Crimson Crystal"] = "深红色水晶",
+
+    
+    ["Zombie"] = "僵尸",
+    ["Delver Zombie"] = "矿工僵尸",
+    ["Elite Zombie"] = "精英僵尸",
+    ["Brute Zombie"] = "野蛮僵尸",
+    ["Bomber"] = "爆炸骷髅",
+    ["Skeleton Rogue"] = "普通骷髅",
+    ["Axe Skeleton"] = "斧头骷髅",
+    ["Deathaxe Skeleton"] = "死亡斧头骷髅",
+    ["Elite Rogue Skeleton"] = "精英骷髅",
+    ["Elite Deathaxe Skeleton"] = "精英死亡斧头骷髅",
+    ["Blight Pyromancer"] = "骷髅法师",
+    ["Reaper"] = "死神",
+    ["Slime"] = "史莱姆",
+    ["blazing"] = "火焰史莱姆",
+    
+    ["HealthPotion1"] = "生命药水1",
+    ["HealthPotion2"] = "生命药水2",
+    ["LuckPotion1"] = "幸运药水1",
+    ["MinerPotion1"] = "矿工药水1",
+    ["AttackDamagePotion1"] = "伤害药水1",
+    ["MovementSpeedPotion1"] = "移速药水1",
+    
+    ["Wood"] = "木头",
+    
+    ["Blacksmith"] = "铁匠",
+    ["Merchant"] = "商人",
+    ["Innkeeper"] = "旅店老板",
+    ["Guard"] = "守卫",
+    ["Mayor"] = "镇长",
+    ["Priest"] = "牧师",
+    ["Wizard"] = "巫师",
+    ["Alchemist"] = "炼金术士",
+    ["Tailor"] = "裁缝",
+    ["Cook"] = "厨师",
+    ["Fisherman"] = "渔夫",
+    ["Miner"] = "矿工",
+    ["Farmer"] = "农民",
+    ["Hunter"] = "猎人",
+    ["Knight"] = "骑士",
+    ["King"] = "国王",
+    ["Queen"] = "女王",
+    ["Prince"] = "王子",
+    ["Princess"] = "公主",
+    ["Bard"] = "吟游诗人",
+    
+    ["Enhancer Shop"] = "杂货店",
+    ["WeaponShop"] = "武器店",
+    ["ArmorShop"] = "防具店",
+    ["PotionShop"] = "药水店",
+    ["MagicShop"] = "魔法店",
+    ["BlacksmithShop"] = "铁匠铺",
+    ["AlchemyShop"] = "炼金店",
+    ["ClothingStore"] = "服装店",
+    ["FoodStore"] = "食品店",
+    ["JewelryStore"] = "珠宝店",
+    ["BookStore"] = "书店",
+    ["ToolShop"] = "工具店",
+    ["FurnitureStore"] = "家具店",
+    ["PetShop"] = "宠物店",
+    ["ToyStore"] = "玩具店",
+    ["MusicStore"] = "音乐店",
+    ["ArtStore"] = "艺术品店",
+    ["AntiqueShop"] = "古董店",
+    ["MagicItemShop"] = "魔法物品店",
+    ["RareItemShop"] = "稀有物品店"
+}
+
+local function TranslateToChinese(englishText)
+    if not englishText then return "" end
+    return ChineseTranslations[englishText] or englishText
+end
+
+local function GetEnglishValue(chineseOption)
+    if chineseOption == "全部" then
+        return "全部"
+    end
+    
+    local startPos, endPos = string.find(chineseOption, "%((.+)%)$")
+    if startPos and endPos then
+        return string.sub(chineseOption, startPos+1, endPos-1)
+    end
+    
+    for english, chinese in pairs(ChineseTranslations) do
+        if chinese == chineseOption then
+            return english
+        end
+    end
+    
+    return chineseOption
+end
+
+local vu27 = false
+local vu29 = {}
+local vu30 = 6
+local vu32 = 35
+
+if vu15.CurrentConfig then
+    vu27 = vu15.CurrentConfig.AutoMineEnabled or DefaultConfig.AutoMineEnabled
+    
+    local v28 = vu15.CurrentConfig.SelectedRockType
+    if type(v28) == "string" then
+        vu29 = {v28}
+    elseif type(v28) == "table" then
+        vu29 = v28
+    end
+    
+    vu30 = tonumber(vu15.CurrentConfig.SelectedMineDistance) or DefaultConfig.SelectedMineDistance
+    if vu30 < 1 or vu30 > 10 then
+        vu30 = DefaultConfig.SelectedMineDistance
+    end
+    
+    local v31 = tonumber(vu15.CurrentConfig.MineTweenSpeed) or DefaultConfig.MineTweenSpeed
+    vu32 = math.clamp(v31, 1, 50)
+else
+    vu27 = DefaultConfig.AutoMineEnabled
+    vu30 = DefaultConfig.SelectedMineDistance
+    vu32 = DefaultConfig.MineTweenSpeed
+end
+
+local vu33 = {}
+local vu35 = {}
+local vu36 = 10
+local vu37 = false
+local vu38 = nil
+local vu39 = nil
+local vu287 = nil
+
+local vu41 = {}
+local vu42 = 6
+local vu44 = 35
+local vu45 = false
+local vu701 = 1
+
+if vu15.CurrentConfig then
+    local v40 = vu15.CurrentConfig.SelectedEnemyType
+    if type(v40) == "string" then
+        vu41 = {v40}
+    elseif type(v40) == "table" then
+        vu41 = v40
+    end
+    
+    vu42 = tonumber(vu15.CurrentConfig.SelectedDistance) or DefaultConfig.SelectedDistance
+    if vu42 < 1 or vu42 > 10 then
+        vu42 = DefaultConfig.SelectedDistance
+    end
+    
+    local v43 = tonumber(vu15.CurrentConfig.EnemyTweenSpeed) or DefaultConfig.EnemyTweenSpeed
+    vu44 = math.clamp(v43, 1, 50)
+    
+    vu45 = vu15.CurrentConfig.AutoFarmEnemyEnabled or DefaultConfig.AutoFarmEnemyEnabled
+    vu701 = vu15.CurrentConfig.EnemyFarmingMode or DefaultConfig.EnemyFarmingMode
+else
+    vu42 = DefaultConfig.SelectedDistance
+    vu44 = DefaultConfig.EnemyTweenSpeed
+    vu45 = DefaultConfig.AutoFarmEnemyEnabled
+    vu701 = DefaultConfig.EnemyFarmingMode
+end
+
+local vu46 = vu15.CurrentConfig and (vu15.CurrentConfig.AntiAFKEnabled or DefaultConfig.AntiAFKEnabled) or DefaultConfig.AntiAFKEnabled
+local vu47 = {}
+
+local vu49 = vu15.CurrentConfig and (vu15.CurrentConfig.ESPRockEnabled or DefaultConfig.ESPRockEnabled) or DefaultConfig.ESPRockEnabled
+local vu50 = vu15.CurrentConfig and (vu15.CurrentConfig.ESPEnemyEnabled or DefaultConfig.ESPEnemyEnabled) or DefaultConfig.ESPEnemyEnabled
+local vu51 = vu15.CurrentConfig and (vu15.CurrentConfig.ESPPlayerEnabled or DefaultConfig.ESPPlayerEnabled) or DefaultConfig.ESPPlayerEnabled
+
+local vu676 = vu15.CurrentConfig and (vu15.CurrentConfig.UIBlurEnabled or DefaultConfig.UIBlurEnabled) or DefaultConfig.UIBlurEnabled
+local vu677 = vu15.CurrentConfig and (vu15.CurrentConfig.NotificationsEnabled or DefaultConfig.NotificationsEnabled) or DefaultConfig.NotificationsEnabled
+local vu678 = vu15.CurrentConfig and (vu15.CurrentConfig.ShowUserInfo or DefaultConfig.ShowUserInfo) or DefaultConfig.ShowUserInfo
+
+local vu52 = {}
+local vu53 = {}
+local vu54 = {}
+local vu702 = {}
+local vu703 = {}
+local vu704 = {}
+
+local vu55 = 300
+
+local vu56 = false
+local vu57 = nil
+local vu58 = {}
+
+local vu60 = {}
+local vu61 = false
+
+if vu15.CurrentConfig then
+    local v59 = vu15.CurrentConfig.SelectedPotionName
+    if type(v59) == "string" then
+        vu60 = {v59}
+    elseif type(v59) == "table" then
+        vu60 = v59
+    end
+    
+    vu61 = vu15.CurrentConfig.AutoBuyAndUsePotionEnabled or DefaultConfig.AutoBuyAndUsePotionEnabled
+else
+    vu61 = DefaultConfig.AutoBuyAndUsePotionEnabled
+end
+
+local vu62 = false
+
+local vu63 = {}
+local vu65 = {}
+local vu66 = false
+
+if vu15.CurrentConfig then
+    local v64 = vu15.CurrentConfig.SelectedItemName
+    if type(v64) == "string" then
+        vu65 = {v64}
+    elseif type(v64) == "table" then
+        vu65 = v64
+    end
+    
+    vu66 = vu15.CurrentConfig.AutoSellItemEnabled or DefaultConfig.AutoSellItemEnabled
+else
+    vu66 = DefaultConfig.AutoSellItemEnabled
+end
+
+local vu67 = nil
+local vu68 = false
+
+local vu69 = {}
+local vu70 = nil
+local vu71 = {}
+local vu72 = nil
+
+local v73 = {
+    FarmLeft = v26.Farm:Section({
+        Name = "自动挖矿设置",
+        Side = "Left"
+    }),
+    FarmRight = v26.Farm:Section({
+        Name = "ESP与刷新",
+        Side = "Right"
+    }),
+    ShopPotion = v26.Shop:Section({
+        Name = "药水商店",
+        Side = "Left"
+    }),
+    SellItem = v26.Shop:Section({
+        Name = "物品出售",
+        Side = "Right"
+    }),
+    TeleportNPC = v26.Teleport:Section({
+        Name = "NPC传送",
+        Side = "Left"
+    }),
+    TeleportShop = v26.Teleport:Section({
+        Name = "商店传送",
+        Side = "Right"
+    }),
+    SettingsESP = v26.Settings:Section({
+        Name = "ESP设置",
+        Side = "Left"
+    }),
+    SettingsUI = v26.Settings:Section({
+        Name = "UI设置",
+        Side = "Right"
+    }),
+    SettingsInfo = v26.Settings:Section({
+        Name = "脚本信息",
+        Side = "Left"
+    })
+}
+
+local function vu82()
+    vu33 = {}
+    local v74 = {}
+    local v75 = vu5:FindFirstChild("Assets")
+    if not v75 then
+        return vu33
+    end
+    local v76 = v75:FindFirstChild("Rocks")
+    if not v76 then
+        return vu33
+    end
+    for _, v80 in pairs(v76:GetDescendants()) do
+        if v80:IsA("Model") then
+            local v81 = v80.Name
+            if typeof(v81) == "string" and v81 ~= "" and not (v81:match("^%d+$") or v74[v81]) then
+                v74[v81] = true
+                table.insert(vu33, v81)
+            end
+        end
+    end
+    table.sort(vu33)
+    return vu33
+end
+
+local function vu91(p83)
+    local v84 = {}
+    if not p83 or p83 == "" then
+        return v84
+    end
+    local v85 = workspace:FindFirstChild("Rocks")
+    if not v85 then
+        return v84
+    end
+    for _, v89 in pairs(v85:GetDescendants()) do
+        if v89:IsA("BasePart") then
+            local v90 = v89:FindFirstAncestorWhichIsA("Model")
+            if v90 and v90.Name == p83 then
+                table.insert(v84, v89)
+            end
+        end
+    end
+    return v84
+end
+
+local function vu110(p92)
+    if not p92 or #p92 == 0 then
+        return false
+    end
+    local v93 = vu1.LocalPlayer.Character
+    if not v93 then
+        return false
+    end
+    if not v93:FindFirstChild("HumanoidRootPart") then
+        return false
+    end
+    local v97 = false
+    for _, v98 in pairs(p92) do
+        if v98 == "全部" then
+            v97 = true
+            break
+        end
+    end
+    if v97 then
+        p92 = vu33
+    end
+    local v99 = tick()
+    for _, v103 in pairs(p92) do
+        local v104 = vu91(v103)
+        for _, v108 in pairs(v104) do
+            if v108 and v108.Parent then
+                local v109 = vu35[v108]
+                if not v109 or (v99 - v109) >= vu36 then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function vu121()
+    local v111 = vu1.LocalPlayer
+    if not v111 then
+        return false
+    end
+    local v112 = v111:FindFirstChild("PlayerGui")
+    if not v112 then
+        return false
+    end
+    local v113 = v112:FindFirstChild("Notifications")
+    if not v113 then
+        return false
+    end
+    local v114 = v113:FindFirstChild("Screen")
+    if not v114 then
+        return false
+    end
+    local v115 = v114:FindFirstChild("NotificationsFrame")
+    if not v115 then
+        return false
+    end
+    for _, v119 in pairs(v115:GetChildren()) do
+        if v119:IsA("Frame") and v119.Name == "TextFrame" then
+            local v120 = v119:FindFirstChild("TextLabel", true)
+            if v120 and v120:IsA("TextLabel") and (v120.Text or ""):lower():find("someone else is already mining this rock.", 1, true) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function vu130()
+    local v122 = vu1.LocalPlayer.Character
+    if not v122 then
+        return false
+    end
+    local vu123 = v122:FindFirstChild("HumanoidRootPart")
+    if not vu123 then
+        return false
+    end
+    if vu38 then
+        vu38:Disconnect()
+        vu38 = nil
+    end
+    local v124 = vu123.Position
+    local v125 = Vector3.new(v124.X, vu55, v124.Z)
+    vu123.CFrame = CFrame.new(v125)
+    vu37 = true
+    local vu126 = vu123:FindFirstChild("BodyVelocity")
+    if not vu126 then
+        vu126 = Instance.new("BodyVelocity")
+        vu126.MaxForce = Vector3.new(4000, 4000, 4000)
+        vu126.Parent = vu123
+    end
+    local vu127 = v122
+    vu38 = vu4.Heartbeat:Connect(function()
+        if vu27 and vu37 and vu1.LocalPlayer.Character == vu127 and vu123 and vu123.Parent and not vu62 then
+            local v128 = vu123.Position
+            local v129 = Vector3.new(v128.X, vu55, v128.Z)
+            vu123.CFrame = CFrame.new(v129, v129 + vu123.CFrame.LookVector * Vector3.new(1, 0, 1))
+            if vu126 then
+                vu126.Velocity = Vector3.new(0, 0, 0)
+            end
+        else
+            if vu38 then
+                vu38:Disconnect()
+                vu38 = nil
+            end
+            vu37 = false
+        end
+    end)
+    return true
+end
+
+local function vu137()
+    if vu39 then
+        pcall(function()
+            vu39:Cancel()
+        end)
+        vu39 = nil
+    end
+    if vu287 then
+        pcall(function()
+            vu287:Cancel()
+        end)
+        vu287 = nil
+    end
+    local v131 = vu1.LocalPlayer.Character
+    local v132
+    if v131 then
+        v132 = v131:FindFirstChild("HumanoidRootPart")
+    end
+    if v131 then
+        v131 = v131:FindFirstChildOfClass("Humanoid")
+    end
+    if v132 then
+        for _, v136 in pairs(v132:GetChildren()) do
+            if v136:IsA("BodyVelocity") or v136:IsA("BodyPosition") or v136:IsA("BodyGyro") then
+                v136:Destroy()
+            end
+        end
+        v132.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end
+    if v131 then
+        v131:ChangeState(Enum.HumanoidStateType.Freefall)
+    end
+    vu37 = false
+    vu56 = false
+end
+
+local function vu147(p138)
+    local v139 = vu1.LocalPlayer.Character
+    if not v139 then
+        return false
+    end
+    local v140 = v139:FindFirstChild("HumanoidRootPart")
+    if not v140 or not p138 or not p138.Parent then
+        return false
+    end
+    local v141 = p138.Position
+    local v142 = Vector3.new(v141.X, vu55, v141.Z)
+    local v143 = v140.Position
+    local v144 = (Vector3.new(v143.X, 0, v143.Z) - Vector3.new(v142.X, 0, v142.Z)).Magnitude / vu32
+    local v145 = CFrame.new(v142, p138.Position)
+    if vu39 then
+        pcall(function()
+            vu39:Cancel()
+        end)
+        vu39 = nil
+    end
+    local v146 = vu3:Create(v140, TweenInfo.new(v144, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+        CFrame = v145
+    })
+    vu39 = v146
+    v146:Play()
+    v146.Completed:Wait()
+    vu39 = nil
+    return true
+end
+
+local function vu171(pu148, p149)
+    if not pu148 or not p149 or p149 == "" then
+        return
+    end
+    local vu150 = pu148:FindFirstAncestorWhichIsA("Model")
+    if not vu150 or vu150.Name ~= p149 then
+        return
+    end
+    local vu151 = {"Pickaxe"}
+    local vu152 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("ToolService"):WaitForChild("RF"):WaitForChild("ToolActivated")
+    local v153 = vu1.LocalPlayer.Character
+    if not v153 then
+        return
+    end
+    local vu154 = v153:FindFirstChild("HumanoidRootPart")
+    if not vu154 then
+        return
+    end
+    local vu155 = v153
+    if vu38 then
+        vu38:Disconnect()
+        vu38 = nil
+    end
+    local v156 = -(vu30 or 3)
+    local v157 = pu148.Position + Vector3.new(0, v156, 0)
+    local v158 = pu148.Position + Vector3.new(0, 5, 0)
+    vu154.CFrame = CFrame.new(v157, v158)
+    vu37 = false
+    local v159 = workspace.CurrentCamera
+    local vu160
+    if v159 then
+        vu160 = v159.CameraSubject
+    end
+    if v159 and pu148 and pu148.Parent then
+        v159.CameraSubject = pu148
+    end
+    local v161 = vu154.AssemblyAngularVelocity
+    vu154.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    local vu162 = vu154:FindFirstChild("BodyVelocity")
+    if not vu162 then
+        vu162 = Instance.new("BodyVelocity")
+        vu162.MaxForce = Vector3.new(4000, 4000, 4000)
+        vu162.Velocity = Vector3.new(0, 0, 0)
+        vu162.Parent = vu154
+    end
+    local vu163 = nil
+    vu163 = vu4.Heartbeat:Connect(function()
+        if vu27 and vu150 and vu150.Parent and vu1.LocalPlayer.Character == vu155 and vu154 and vu154.Parent and not vu62 then
+            local v164 = pu148
+            if v164 and v164.Parent then
+                local v165 = -(vu30 or 3)
+                local v166 = v164.Position + Vector3.new(0, v165, 0)
+                local v167 = v164.Position + Vector3.new(0, 5, 0)
+                vu154.CFrame = CFrame.new(v166, v167)
+                if vu162 then
+                    vu162.Velocity = Vector3.new(0, 0, 0)
+                end
+            end
+        else
+            if vu163 then
+                vu163:Disconnect()
+            end
+            local v168 = workspace.CurrentCamera
+            if v168 and vu160 then
+                v168.CameraSubject = vu160
+            end
+        end
+    end)
+    local v169 = vu163
+    while vu27 and vu1.LocalPlayer.Character == vu155 and vu154 and vu154.Parent and not vu62 and vu150 and vu150.Parent do
+        if vu121() then
+            if pu148 and pu148.Parent then
+                vu35[pu148] = tick()
+            end
+            break
+        end
+        pcall(function()
+            vu152:InvokeServer(unpack(vu151))
+        end)
+        task.wait(0.15)
+    end
+    if v169 then
+        v169:Disconnect()
+    end
+    if vu162 and vu162.Parent then
+        vu162:Destroy()
+    end
+    if vu154 and vu154.Parent then
+        vu154.AssemblyAngularVelocity = v161
+    end
+    local v170 = workspace.CurrentCamera
+    if v170 and vu160 then
+        v170.CameraSubject = vu160
+    end
+    if vu27 then
+        vu130()
+    end
+end
+
+v73.FarmLeft:Header({
+    Name = "⚒️ 自动挖矿"
+})
+
+local v172 = vu82()
+local v181 = {"全部"}
+for _, v182 in pairs(v172) do
+    table.insert(v181, v182)
+end
+
+local v181Chinese = {}
+for _, v182 in pairs(v181) do
+    if v182 == "全部" then
+        table.insert(v181Chinese, "全部")
+    else
+        table.insert(v181Chinese, TranslateToChinese(v182) .. " (" .. v182 .. ")")
+    end
+end
+
+local vu193 = v73.FarmLeft:Dropdown({
+    Name = "选择矿石类型",
+    Multi = true,
+    Required = false,
+    Options = v181Chinese,
+    Default = {},
+    Callback = function(p183)
+        if typeof(p183) == "table" then
+            vu29 = {}
+            local v187 = false
+            for v186, v188 in pairs(p183) do
+                if v188 then
+                    local englishValue = GetEnglishValue(v186)
+                    if englishValue == "全部" then
+                        v187 = true
+                    else
+                        table.insert(vu29, englishValue)
+                    end
+                end
+            end
+            if v187 then
+                vu29 = {}
+                for _, v192 in pairs(v172) do
+                    table.insert(vu29, v192)
+                end
+                if vu193 and vu193.UpdateSelection then
+                    local selectedChinese = {}
+                    for _, eng in pairs(vu29) do
+                        table.insert(selectedChinese, TranslateToChinese(eng) .. " (" .. eng .. ")")
+                    end
+                    vu193:UpdateSelection(selectedChinese)
+                end
+            end
+        end
+        if vu29 and #vu29 ~= 0 then
+            vu15.CurrentConfig.SelectedRockType = vu29
+        else
+            vu29 = {}
+            vu15.CurrentConfig.SelectedRockType = {}
+        end
+        pcall(function() vu15:SaveConfig() end)
+    end
+}, "SelectRockDropdown")
+
+local function UpdateRockDropdownSelection()
+    if vu29 and #vu29 > 0 and vu193 and vu193.UpdateSelection then
+        local selectedChinese = {}
+        for _, eng in pairs(vu29) do
+            if eng == "全部" then
+                table.insert(selectedChinese, "全部")
+            else
+                table.insert(selectedChinese, TranslateToChinese(eng) .. " (" .. eng .. ")")
+            end
+        end
+        vu193:UpdateSelection(selectedChinese)
+    end
+end
+
+local v206 = v73.FarmLeft:Dropdown({
+    Name = "选择挖矿距离",
+    Multi = false,
+    Required = false,
+    Options = {"1","2","3","4","5","6","7","8","9","10"},
+    Default = tostring(vu30),
+    Callback = function(p200)
+        local v201
+        if typeof(p200) ~= "table" then
+            v201 = p200
+        else
+            for v186, v188 in pairs(p200) do
+                if v188 then
+                    v201 = v186
+                    break
+                end
+            end
+        end
+        local v205 = tonumber(v201)
+        if v205 and v205 >= 1 and v205 <= 10 then
+            vu30 = v205
+            vu15.CurrentConfig.SelectedMineDistance = vu30
+            pcall(function() vu15:SaveConfig() end)
+        end
+    end
+}, "SelectMineDistanceDropdown")
+
+if vu30 and v206 and v206.UpdateSelection then
+    v206:UpdateSelection(tostring(vu30))
+end
+
+v73.FarmLeft:Slider({
+    Name = "移动速度 (1-50)",
+    Default = vu32,
+    Minimum = 1,
+    Maximum = 50,
+    DisplayMethod = "数值",
+    Precision = 1,
+    Callback = function(p207)
+        local v208 = tonumber(p207) or vu32
+        local v209 = math.clamp(v208, 1, 50)
+        vu32 = v209
+        vu15.CurrentConfig.MineTweenSpeed = v209
+        pcall(function() vu15:SaveConfig() end)
+        if vu27 and not vu62 then
+            if vu39 then
+                pcall(function()
+                    vu39:Cancel()
+                end)
+                vu39 = nil
+            end
+            vu37 = false
+            vu130()
+        end
+    end
+}, "MineTweenSpeedSlider")
+
+v73.FarmLeft:Toggle({
+    Name = "启用自动挖矿",
+    Default = vu27,
+    Callback = function(p210)
+        vu27 = p210
+        vu15.CurrentConfig.AutoMineEnabled = p210
+        pcall(function() vu15:SaveConfig() end)
+        if p210 then
+            if vu29 and #vu29 ~= 0 then
+                vu130()
+            else
+                vu22("挖矿", "请先选择矿石类型!", 4)
+            end
+        else
+            vu37 = false
+            if vu38 then
+                vu38:Disconnect()
+                vu38 = nil
+            end
+            vu137()
+        end
+    end
+}, "AutoMineToggle")
+
+v73.FarmLeft:Header({
+    Name = "⚔️ 自动刷怪"
+})
+
+local function vu242(p240)
+    if p240 and p240 ~= "" then
+        local v241 = p240:gsub("%d+$", "")
+        if v241 == "" then
+            return nil
+        else
+            return v241:gsub("%s+$", "")
+        end
+    else
+        return nil
+    end
+end
+
+local function vu251()
+    vu47 = {}
+    local v243 = {}
+    local v244 = vu5:FindFirstChild("Assets")
+    if not v244 then
+        return vu47
+    end
+    local v245 = v244:FindFirstChild("Mobs")
+    if not v245 then
+        return vu47
+    end
+    for _, v249 in pairs(v245:GetDescendants()) do
+        if v249:IsA("Model") and v249.Name ~= "Model" then
+            local v250 = vu242(v249.Name)
+            if v250 and v250 ~= "" and not v243[v250] then
+                v243[v250] = true
+                table.insert(vu47, v250)
+            end
+        end
+    end
+    table.sort(vu47)
+    return vu47
+end
+
+local function vu267(p260)
+    local v261 = {}
+    if not p260 or p260 == "" then
+        return v261
+    end
+    local v262 = workspace:FindFirstChild("Living")
+    if not v262 then
+        return v261
+    end
+    for _, v266 in pairs(v262:GetChildren()) do
+        if v266:IsA("Model") and vu242(v266.Name) == p260 then
+            table.insert(v261, v266)
+        end
+    end
+    return v261
+end
+
+local function vu270(p268)
+    if not p268 or not p268.Parent then
+        return true
+    end
+    local v269 = p268:FindFirstChild("Status")
+    return v269 and v269:FindFirstChild("Dead") and true or false
+end
+
+local function vu283(p271)
+    local v272 = vu1.LocalPlayer.Character
+    if not v272 then
+        return nil
+    end
+    local v273 = v272:FindFirstChild("HumanoidRootPart")
+    if not v273 then
+        return nil
+    end
+    local v274 = vu267(p271)
+    local v275 = math.huge
+    local v279 = nil
+    for _, v280 in pairs(v274) do
+        if not vu270(v280) and v280 and v280.Parent then
+            local v281 = v280:FindFirstChild("HumanoidRootPart") or v280.PrimaryPart or v280:FindFirstChildWhichIsA("BasePart", true)
+            if v281 then
+                local v282 = (v273.Position - v281.Position).Magnitude
+                if v282 < v275 then
+                    v279 = v280
+                    v275 = v282
+                end
+            end
+        end
+    end
+    return v279
+end
+
+local function vu296()
+    local v288 = vu1.LocalPlayer.Character
+    if not v288 then
+        return false
+    end
+    local vu289 = v288:FindFirstChild("HumanoidRootPart")
+    if not vu289 then
+        return false
+    end
+    if vu57 then
+        vu57:Disconnect()
+        vu57 = nil
+    end
+    local v290 = vu289.Position
+    local v291 = Vector3.new(v290.X, vu55, v290.Z)
+    vu289.CFrame = CFrame.new(v291)
+    vu56 = true
+    local vu292 = vu289:FindFirstChild("BodyVelocity")
+    if not vu292 then
+        vu292 = Instance.new("BodyVelocity")
+        vu292.MaxForce = Vector3.new(4000, 4000, 4000)
+        vu292.Parent = vu289
+    end
+    local vu293 = v288
+    vu57 = vu4.Heartbeat:Connect(function()
+        if vu45 and vu56 and vu1.LocalPlayer.Character == vu293 and vu289 and vu289.Parent and not vu62 then
+            local v294 = vu289.Position
+            local v295 = Vector3.new(v294.X, vu55, v294.Z)
+            vu289.CFrame = CFrame.new(v295, v295 + vu289.CFrame.LookVector * Vector3.new(1, 0, 1))
+            if vu292 then
+                vu292.Velocity = Vector3.new(0, 0, 0)
+            end
+        else
+            if vu57 then
+                vu57:Disconnect()
+                vu57 = nil
+            end
+            vu56 = false
+        end
+    end)
+    return true
+end
+
+local function vu307(p297)
+    local v298 = vu1.LocalPlayer.Character
+    if not v298 then
+        return false
+    end
+    local v299 = v298:FindFirstChild("HumanoidRootPart")
+    if not v299 or not p297 or not p297.Parent then
+        return false
+    end
+    local v300 = p297:FindFirstChild("HumanoidRootPart") or p297.PrimaryPart or p297:FindFirstChildWhichIsA("BasePart", true)
+    if not v300 then
+        return false
+    end
+    if vu287 then
+        pcall(function()
+            vu287:Cancel()
+        end)
+    end
+    local v301 = v300.Position
+    local v302 = Vector3.new(v301.X, vu55, v301.Z)
+    local v303 = v299.Position
+    local v304 = (Vector3.new(v303.X, 0, v303.Z) - Vector3.new(v302.X, 0, v302.Z)).Magnitude / vu44
+    local v305 = vu3
+    local v306 = {CFrame = CFrame.new(v302, v300.Position)}
+    vu287 = v305:Create(v299, TweenInfo.new(v304, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), v306)
+    vu287:Play()
+    vu287.Completed:Wait()
+    return true
+end
+
+local function vu329(pu308, p309)
+    if not pu308 or not p309 or p309 == "" then
+        return
+    end
+    if not pu308.Parent then
+        return
+    end
+    local vu310 = {"Weapon"}
+    local vu311 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("ToolService"):WaitForChild("RF"):WaitForChild("ToolActivated")
+    local v312 = vu1.LocalPlayer.Character
+    if not v312 then
+        return
+    end
+    local vu313 = v312:FindFirstChild("HumanoidRootPart")
+    if not vu313 then
+        return
+    end
+    local vu314 = v312
+    if vu287 then
+        pcall(function()
+            vu287:Cancel()
+        end)
+        vu287 = nil
+    end
+    if vu57 then
+        vu57:Disconnect()
+        vu57 = nil
+    end
+    local vu315 = pu308:FindFirstChild("HumanoidRootPart") or pu308.PrimaryPart or pu308:FindFirstChildWhichIsA("BasePart", true)
+    if not vu315 then
+        return
+    end
+    local v316 = vu315.Position + Vector3.new(0, -vu42, 0)
+    local v317 = vu315.Position + Vector3.new(0, 5, 0)
+    vu313.CFrame = CFrame.new(v316, v317)
+    vu56 = false
+    local v318 = workspace.CurrentCamera
+    local vu319 = v318.CameraSubject
+    local v320 = pu308:FindFirstChildOfClass("Humanoid")
+    if v320 then
+        v318.CameraSubject = v320
+    end
+    local v321 = vu313.AssemblyAngularVelocity
+    vu313.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    local vu322 = vu313:FindFirstChild("BodyVelocity")
+    if not vu322 then
+        vu322 = Instance.new("BodyVelocity")
+        vu322.MaxForce = Vector3.new(4000, 4000, 4000)
+        vu322.Velocity = Vector3.new(0, 0, 0)
+        vu322.Parent = vu313
+    end
+    local vu323 = nil
+    vu323 = vu4.Heartbeat:Connect(function()
+        if vu45 and pu308 and pu308.Parent and not vu270(pu308) and vu1.LocalPlayer.Character == vu314 and vu313 and vu313.Parent and not vu62 then
+            if vu315 and vu313 and vu313.Parent then
+                local v324 = vu315.Position + Vector3.new(0, -vu42, 0)
+                local v325 = vu315.Position + Vector3.new(0, 5, 0)
+                vu313.CFrame = CFrame.new(v324, v325)
+                if vu322 then
+                    vu322.Velocity = Vector3.new(0, 0, 0)
+                end
+            end
+        else
+            if vu323 then
+                vu323:Disconnect()
+            end
+            local v326 = workspace.CurrentCamera
+            if v326 and vu319 then
+                v326.CameraSubject = vu319
+            end
+        end
+    end)
+    local v327 = vu323
+    while vu45 and vu1.LocalPlayer.Character == vu314 and vu313 and vu313.Parent and not vu62 and not vu270(pu308) and pu308 and pu308.Parent do
+        pcall(function()
+            vu311:InvokeServer(unpack(vu310))
+        end)
+        task.wait(0.15)
+    end
+    if v327 then
+        v327:Disconnect()
+    end
+    if vu322 and vu322.Parent then
+        vu322:Destroy()
+    end
+    if vu313 and vu313.Parent then
+        vu313.AssemblyAngularVelocity = v321
+    end
+    local v328 = workspace.CurrentCamera
+    if v328 and vu319 then
+        v328.CameraSubject = vu319
+    end
+    if vu45 then
+        vu296()
+    end
+end
+
+local function vu705(pu308, p309)
+    if not pu308 or not p309 or p309 == "" then
+        return
+    end
+    if not pu308.Parent then
+        return
+    end
+    local vu310 = {"Weapon"}
+    local vu311 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("ToolService"):WaitForChild("RF"):WaitForChild("ToolActivated")
+    local v312 = vu1.LocalPlayer.Character
+    if not v312 then
+        return
+    end
+    local vu313 = v312:FindFirstChild("HumanoidRootPart")
+    if not vu313 then
+        return
+    end
+    local vu314 = v312
+    if vu287 then
+        pcall(function()
+            vu287:Cancel()
+        end)
+        vu287 = nil
+    end
+    if vu57 then
+        vu57:Disconnect()
+        vu57 = nil
+    end
+    local vu315 = pu308:FindFirstChild("HumanoidRootPart") or pu308.PrimaryPart or pu308:FindFirstChildWhichIsA("BasePart", true)
+    if not vu315 then
+        return
+    end
+    local v321 = vu313.AssemblyAngularVelocity
+    vu313.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    local vu322 = vu313:FindFirstChild("BodyVelocity")
+    if not vu322 then
+        vu322 = Instance.new("BodyVelocity")
+        vu322.MaxForce = Vector3.new(4000, 4000, 4000)
+        vu322.Velocity = Vector3.new(0, 0, 0)
+        vu322.Parent = vu313
+    end
+    local v320 = pu308:FindFirstChildOfClass("Humanoid")
+    local vu323 = nil
+    vu323 = vu4.Heartbeat:Connect(function()
+        if vu45 and pu308 and pu308.Parent and not vu270(pu308) and vu1.LocalPlayer.Character == vu314 and vu313 and vu313.Parent and not vu62 then
+            if vu315 and vu313 and vu313.Parent then
+                local enemyPosition = vu315.Position
+                local enemyCFrame = vu315.CFrame
+                local lookVector = enemyCFrame.LookVector
+                local rightVector = enemyCFrame.RightVector
+                local upVector = enemyCFrame.UpVector
+                local offsetDistance = vu42
+                local offsetPosition = enemyPosition - (lookVector * offsetDistance) + (Vector3.new(0, 2, 0))
+                local lookAtPosition = enemyPosition + lookVector
+                vu313.CFrame = CFrame.new(offsetPosition, lookAtPosition)
+                if vu322 then
+                    vu322.Velocity = Vector3.new(0, 0, 0)
+                end
+                if v320 then
+                    workspace.CurrentCamera.CameraSubject = v320
+                end
+            end
+        else
+            if vu323 then
+                vu323:Disconnect()
+            end
+            workspace.CurrentCamera.CameraSubject = vu314:FindFirstChildOfClass("Humanoid")
+        end
+    end)
+    local v327 = vu323
+    while vu45 and vu1.LocalPlayer.Character == vu314 and vu313 and vu313.Parent and not vu62 and not vu270(pu308) and pu308 and pu308.Parent do
+        pcall(function()
+            vu311:InvokeServer(unpack(vu310))
+        end)
+        task.wait(0.15)
+    end
+    if v327 then
+        v327:Disconnect()
+    end
+    if vu322 and vu322.Parent then
+        vu322:Destroy()
+    end
+    if vu313 and vu313.Parent then
+        vu313.AssemblyAngularVelocity = v321
+    end
+    workspace.CurrentCamera.CameraSubject = vu314:FindFirstChildOfClass("Humanoid")
+    if vu45 then
+        vu296()
+    end
+end
+
+local vu330 = vu251()
+local v338 = {"全部"}
+local v338Chinese = {"全部"}
+for _, v339 in pairs(vu330) do
+    table.insert(v338, v339)
+    table.insert(v338Chinese, TranslateToChinese(v339) .. " (" .. v339 .. ")")
+end
+
+local vu350 = v73.FarmLeft:Dropdown({
+    Name = "选择敌人类型",
+    Multi = true,
+    Required = false,
+    Options = v338Chinese,
+    Default = {},
+    Callback = function(p340)
+        if typeof(p340) == "table" then
+            vu41 = {}
+            local v344 = false
+            for v343, v345 in pairs(p340) do
+                if v345 then
+                    local englishValue = GetEnglishValue(v343)
+                    if englishValue == "全部" then
+                        v344 = true
+                    else
+                        table.insert(vu41, englishValue)
+                    end
+                end
+            end
+            if v344 then
+                vu41 = {}
+                for _, v349 in pairs(vu330) do
+                    table.insert(vu41, v349)
+                end
+                if vu350 and vu350.UpdateSelection then
+                    local selectedChinese = {}
+                    for _, eng in pairs(vu41) do
+                        table.insert(selectedChinese, TranslateToChinese(eng) .. " (" .. eng .. ")")
+                    end
+                    vu350:UpdateSelection(selectedChinese)
+                end
+            end
+        end
+        if vu41 and #vu41 ~= 0 then
+            vu15.CurrentConfig.SelectedEnemyType = vu41
+        else
+            vu41 = {}
+            vu15.CurrentConfig.SelectedEnemyType = {}
+        end
+        pcall(function() vu15:SaveConfig() end)
+    end
+}, "SelectEnemyDropdown")
+
+local v706 = v73.FarmLeft:Dropdown({
+    Name = "刷怪模式",
+    Multi = false,
+    Required = false,
+    Options = {"模式1: 标准攻击", "模式2: 视角锁定"},
+    Default = vu701 == 1 and "模式1: 标准攻击" or "模式2: 视角锁定",
+    Callback = function(p707)
+        if p707 == "模式1: 标准攻击" then
+            vu701 = 1
+        else
+            vu701 = 2
+        end
+        vu15.CurrentConfig.EnemyFarmingMode = vu701
+        pcall(function() vu15:SaveConfig() end)
+    end
+}, "EnemyFarmingModeDropdown")
+
+local v366 = v73.FarmLeft:Dropdown({
+    Name = "选择刷怪距离",
+    Multi = false,
+    Required = false,
+    Options = {"1","2","3","4","5","6","7","8","9","10"},
+    Default = tostring(vu42),
+    Callback = function(p360)
+        local v361
+        if typeof(p360) ~= "table" then
+            v361 = p360
+        else
+            for v362, v363 in pairs(p360) do
+                if v363 then
+                    v361 = v362
+                    break
+                end
+            end
+        end
+        local v365 = tonumber(v361)
+        if v365 and v365 >= 1 and v365 <= 10 then
+            vu42 = v365
+            vu15.CurrentConfig.SelectedDistance = vu42
+            pcall(function() vu15:SaveConfig() end)
+        end
+    end
+}, "SelectDistanceDropdown")
+
+if vu42 and v366 and v366.UpdateSelection then
+    v366:UpdateSelection(tostring(vu42))
+end
+
+v73.FarmLeft:Slider({
+    Name = "移动速度 (1-50)",
+    Default = vu44,
+    Minimum = 1,
+    Maximum = 50,
+    DisplayMethod = "数值",
+    Precision = 1,
+    Callback = function(p367)
+        local v368 = tonumber(p367) or vu44
+        local v369 = math.clamp(v368, 1, 50)
+        vu44 = v369
+        vu15.CurrentConfig.EnemyTweenSpeed = v369
+        pcall(function() vu15:SaveConfig() end)
+        if vu45 and not vu62 then
+            if vu287 then
+                pcall(function()
+                    vu287:Cancel()
+                end)
+                vu287 = nil
+            end
+            vu56 = false
+            vu296()
+        end
+    end
+}, "EnemyTweenSpeedSlider")
+
+v73.FarmLeft:Toggle({
+    Name = "启用自动刷怪",
+    Default = vu45,
+    Callback = function(p370)
+        vu45 = p370
+        vu15.CurrentConfig.AutoFarmEnemyEnabled = p370
+        pcall(function() vu15:SaveConfig() end)
+        if p370 then
+            if vu41 and #vu41 > 0 then
+                vu296()
+            else
+                vu22("刷怪", "请先选择敌人类型!", 4)
+            end
+        else
+            vu56 = false
+            if vu57 then
+                vu57:Disconnect()
+                vu57 = nil
+            end
+            vu137()
+        end
+    end
+}, "AutoFarmEnemyToggle")
+
+local function UpdateEnemyDropdownSelection()
+    if vu41 and #vu41 > 0 and vu350 and vu350.UpdateSelection then
+        local selectedChinese = {}
+        for _, eng in pairs(vu41) do
+            if eng == "全部" then
+                table.insert(selectedChinese, "全部")
+            else
+                table.insert(selectedChinese, TranslateToChinese(eng) .. " (" .. eng .. ")")
+            end
+        end
+        vu350:UpdateSelection(selectedChinese)
+    end
+end
+
+v73.FarmRight:Header({
+    Name = "👁️ ESP设置"
+})
+
+v73.FarmRight:Toggle({
+    Name = "矿石ESP",
+    Default = vu49,
+    Callback = function(p661)
+        vu49 = p661
+        vu15.CurrentConfig.ESPRockEnabled = p661
+        pcall(function() vu15:SaveConfig() end)
+        vu22("ESP", (p661 and "开启" or "关闭") .. " 矿石ESP", 3)
+        if not p661 then
+            for _, v665 in pairs(vu52) do
+                if v665 and v665.Parent then
+                    v665:Destroy()
+                end
+            end
+            for _, v708 in pairs(vu702) do
+                if v708 and v708.Parent then
+                    v708:Destroy()
+                end
+            end
+            vu52 = {}
+            vu702 = {}
+        end
+    end
+}, "ESPRockToggleFarm")
+
+v73.FarmRight:Toggle({
+    Name = "敌人ESP",
+    Default = vu50,
+    Callback = function(p666)
+        vu50 = p666
+        vu15.CurrentConfig.ESPEnemyEnabled = p666
+        pcall(function() vu15:SaveConfig() end)
+        vu22("ESP", (p666 and "开启" or "关闭") .. " 敌人ESP", 3)
+        if not p666 then
+            for _, v670 in pairs(vu53) do
+                if v670 and v670.Parent then
+                    v670:Destroy()
+                end
+            end
+            for _, v709 in pairs(vu703) do
+                if v709 and v709.Parent then
+                    v709:Destroy()
+                end
+            end
+            vu53 = {}
+            vu703 = {}
+        end
+    end
+}, "ESPEnemyToggleFarm")
+
+v73.FarmRight:Button({
+    Name = "刷新矿石列表",
+    Callback = function()
+        v172 = vu82()
+        local v198 = {"全部"}
+        local v198Chinese = {"全部"}
+        for _, v199 in pairs(v172) do
+            table.insert(v198, v199)
+            table.insert(v198Chinese, TranslateToChinese(v199) .. " (" .. v199 .. ")")
+        end
+        if vu193 then
+            if vu193.ClearOptions then
+                vu193:ClearOptions()
+            end
+            if vu193.InsertOptions then
+                vu193:InsertOptions(v198Chinese)
+            end
+            UpdateRockDropdownSelection()
+        end
+        vu22("挖矿", "矿石列表已刷新", 3)
+    end
+}, "RefreshRockListButton")
+
+v73.FarmRight:Button({
+    Name = "刷新敌人列表",
+    Callback = function()
+        vu330 = vu251()
+        local v358 = {"全部"}
+        local v358Chinese = {"全部"}
+        for _, v359 in pairs(vu330) do
+            table.insert(v358, v359)
+            table.insert(v358Chinese, TranslateToChinese(v359) .. " (" .. v359 .. ")")
+        end
+        if vu350 then
+            if vu350.ClearOptions then
+                vu350:ClearOptions()
+            end
+            if vu350.InsertOptions then
+                vu350:InsertOptions(v358Chinese)
+            end
+            UpdateEnemyDropdownSelection()
+        end
+        vu22("刷怪", "敌人列表已刷新", 3)
+    end
+}, "RefreshEnemyListButton")
+
+local function vu558(p552, p553, p554, espType)
+    local v555 = p552:FindFirstChild("ESPBillboard")
+    if not v555 then
+        v555 = Instance.new("BillboardGui")
+        v555.Name = "ESPBillboard"
+        v555.Size = UDim2.new(0, 200, 0, 50)
+        v555.StudsOffset = Vector3.new(0, 3, 0)
+        v555.AlwaysOnTop = true
+        v555.Adornee = p552
+        v555.MaxDistance = 1000
+        v555.Parent = p552
+        
+        local v556 = Instance.new("TextLabel")
+        v556.Name = "ESPLabel"
+        v556.Size = UDim2.new(1, 0, 1, 0)
+        v556.BackgroundTransparency = 1
+        v556.TextColor3 = Color3.fromRGB(255, 255, 255)
+        v556.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        v556.TextStrokeTransparency = 0.5
+        v556.TextSize = 14
+        v556.Font = Enum.Font.GothamBold
+        v556.Parent = v555
+    end
+    
+    local v557 = v555:FindFirstChild("ESPLabel")
+    if v557 then
+        local color = Color3.fromRGB(255, 255, 255)
+        if espType == "Rock" then
+            color = Color3.fromRGB(0, 255, 0)
+        elseif espType == "Enemy" then
+            color = Color3.fromRGB(255, 0, 0)
+        elseif espType == "Player" then
+            color = Color3.fromRGB(0, 120, 255)
+        end
+        v557.TextColor3 = color
+        v557.Text = TranslateToChinese(p553) .. "\n距离: " .. string.format("%.1f", p554) .. " 单位"
+    end
+    return v555
+end
+
+local function vu710(p711, espType)
+    local highlight = p711:FindFirstChild("ESPHighlight")
+    if not highlight then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "ESPHighlight"
+        highlight.FillTransparency = 0.8
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = p711
+        
+        if espType == "Rock" then
+            highlight.FillColor = Color3.fromRGB(0, 255, 0)
+            highlight.OutlineColor = Color3.fromRGB(0, 200, 0)
+        elseif espType == "Enemy" then
+            highlight.FillColor = Color3.fromRGB(255, 0, 0)
+            highlight.OutlineColor = Color3.fromRGB(200, 0, 0)
+        elseif espType == "Player" then
+            highlight.FillColor = Color3.fromRGB(0, 120, 255)
+            highlight.OutlineColor = Color3.fromRGB(0, 80, 200)
+        end
+    end
+    return highlight
+end
+
+local function vu589()
+    if not vu49 then
+        return
+    end
+    
+    if not vu29 or #vu29 == 0 then
+        for _, v581 in pairs(vu52) do
+            if v581 and v581.Parent then
+                v581:Destroy()
+            end
+        end
+        for _, v712 in pairs(vu702) do
+            if v712 and v712.Parent then
+                v712:Destroy()
+            end
+        end
+        vu52 = {}
+        vu702 = {}
+        return
+    end
+    
+    local v563 = vu1.LocalPlayer.Character
+    if not v563 then
+        return
+    end
+    
+    local v564 = v563:FindFirstChild("HumanoidRootPart")
+    if not v564 then
+        return
+    end
+    
+    local v568 = {}
+    local v569 = false
+    for _, v570 in pairs(vu29) do
+        if v570 == "全部" then
+            v569 = true
+            break
+        end
+        v568[v570] = true
+    end
+    
+    local v571 = workspace:FindFirstChild("Rocks")
+    if v571 then
+        local v575 = {}
+        for _, v576 in pairs(v571:GetDescendants()) do
+            if v576:IsA("BasePart") and v576.Parent then
+                local v577 = v576:FindFirstAncestorWhichIsA("Model")
+                if v577 and v577.Name ~= "" and (v569 or v568[v577.Name]) then
+                    v575[v576] = v577.Name
+                end
+            end
+        end
+        
+        for v580, v581 in pairs(vu52) do
+            if not (v575[v580] and v580.Parent) then
+                if v581 and v581.Parent then
+                    v581:Destroy()
+                end
+                vu52[v580] = nil
+            end
+        end
+        
+        for v713, v714 in pairs(vu702) do
+            if not (v575[v713] and v713.Parent) then
+                if v714 and v714.Parent then
+                    v714:Destroy()
+                end
+                vu702[v713] = nil
+            end
+        end
+        
+        for v584, v585 in pairs(v575) do
+            if v584 and v584.Parent then
+                local v586 = (v564.Position - v584.Position).Magnitude
+                local v587 = vu52[v584]
+                if v587 and v587.Parent then
+                    local v588 = v587:FindFirstChild("ESPLabel")
+                    if v588 then
+                        v588.Text = TranslateToChinese(v585) .. "\n距离: " .. string.format("%.1f", v586) .. " 单位"
+                    end
+                else
+                    vu52[v584] = vu558(v584, v585, v586, "Rock")
+                end
+                
+                local v715 = vu702[v584]
+                if not v715 or not v715.Parent then
+                    vu702[v584] = vu710(v584, "Rock")
+                end
+            end
+        end
+    end
+end
+
+local function vu623()
+    if not vu50 then
+        return
+    end
+    
+    if not vu41 or #vu41 == 0 then
+        for _, v593 in pairs(vu53) do
+            if v593 and v593.Parent then
+                v593:Destroy()
+            end
+        end
+        for _, v716 in pairs(vu703) do
+            if v716 and v716.Parent then
+                v716:Destroy()
+            end
+        end
+        vu53 = {}
+        vu703 = {}
+        return
+    end
+    
+    local v594 = vu1.LocalPlayer.Character
+    if not v594 then
+        return
+    end
+    
+    local v595 = v594:FindFirstChild("HumanoidRootPart")
+    if not v595 then
+        return
+    end
+    
+    local v599 = {}
+    local v600 = false
+    for _, v601 in pairs(vu41) do
+        if v601 == "全部" then
+            v600 = true
+            break
+        end
+        v599[v601] = true
+    end
+    
+    local v602 = workspace:FindFirstChild("Living")
+    if v602 then
+        local v606 = {}
+        for _, v607 in pairs(v602:GetChildren()) do
+            if v607:IsA("Model") and v607.Name ~= "Model" and not vu270(v607) then
+                local v608 = v607:FindFirstChild("HumanoidRootPart") or v607.PrimaryPart or v607:FindFirstChildWhichIsA("BasePart", true)
+                if v608 then
+                    local v609 = vu242(v607.Name) or v607.Name
+                    if v600 or v599[v609] then
+                        v606[v607] = {
+                            rootPart = v608,
+                            name = v609
+                        }
+                    end
+                end
+            end
+        end
+        
+        for v612, v613 in pairs(vu53) do
+            if not (v606[v612] and v612.Parent and not vu270(v612)) then
+                if v613 and v613.Parent then
+                    v613:Destroy()
+                end
+                vu53[v612] = nil
+            end
+        end
+        
+        for v717, v718 in pairs(vu703) do
+            if not (v606[v717] and v717.Parent and not vu270(v717)) then
+                if v718 and v718.Parent then
+                    v718:Destroy()
+                end
+                vu703[v717] = nil
+            end
+        end
+        
+        for v616, v617 in pairs(v606) do
+            if v616 and v616.Parent then
+                local v618 = v617.rootPart
+                local v619 = v617.name
+                local v620 = (v595.Position - v618.Position).Magnitude
+                local v621 = vu53[v616]
+                
+                if v621 and v621.Parent then
+                    if v621.Adornee ~= v618 then
+                        v621.Adornee = v618
+                    end
+                    local v622 = v621:FindFirstChild("ESPLabel")
+                    if v622 then
+                        v622.Text = TranslateToChinese(v619) .. "\n距离: " .. string.format("%.1f", v620) .. " 单位"
+                    end
+                else
+                    vu53[v616] = vu558(v618, v619, v620, "Enemy")
+                end
+                
+                local v719 = vu703[v616]
+                if not v719 or not v719.Parent then
+                    vu703[v616] = vu710(v616, "Enemy")
+                end
+            end
+        end
+    end
+end
+
+local function vu647()
+    if not vu51 then
+        return
+    end
+    
+    local v624 = vu1.LocalPlayer
+    local v625 = v624.Character
+    if not v625 then
+        return
+    end
+    
+    local v626 = v625:FindFirstChild("HumanoidRootPart")
+    if not v626 then
+        return
+    end
+    
+    local v631 = {}
+    for _, v632 in pairs(vu1:GetPlayers()) do
+        if v632 ~= v624 then
+            local v633 = v632.Character
+            if v633 then
+                local v634 = v633:FindFirstChild("HumanoidRootPart") or v633.PrimaryPart or v633:FindFirstChildWhichIsA("BasePart", true)
+                if v634 and v633.Parent then
+                    v631[v632] = v634
+                end
+            end
+        end
+    end
+    
+    for v637, v638 in pairs(vu54) do
+        if not (v631[v637] and v637.Character and v631[v637].Parent) then
+            if v638 and v638.Parent then
+                v638:Destroy()
+            end
+            vu54[v637] = nil
+        end
+    end
+    
+    for v720, v721 in pairs(vu704) do
+        if not (v631[v720] and v720.Character and v631[v720].Parent) then
+            if v721 and v721.Parent then
+                v721:Destroy()
+            end
+            vu704[v720] = nil
+        end
+    end
+    
+    for v641, v642 in pairs(v631) do
+        if v641 and v642 and v642.Parent then
+            local v643 = (v626.Position - v642.Position).Magnitude
+            local v644 = vu54[v641]
+            
+            if v644 and v644.Parent then
+                if v644.Adornee ~= v642 then
+                    v644.Adornee = v642
+                end
+                local v645 = v644:FindFirstChild("ESPLabel")
+                if v645 then
+                    local v646 = string.format("%.1f", v643) .. " 单位"
+                    v645.Text = v641.Name .. "\n距离: " .. v646
+                end
+            else
+                vu54[v641] = vu558(v642, v641.Name, v643, "Player")
+            end
+            
+            local v722 = vu704[v641]
+            if not v722 or not v722.Parent then
+                vu704[v641] = vu710(v642, "Player")
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.1) do
+        if vu49 then
+            pcall(vu589)
+        else
+            for _, v651 in pairs(vu52) do
+                if v651 and v651.Parent then
+                    v651:Destroy()
+                end
+            end
+            for _, v723 in pairs(vu702) do
+                if v723 and v723.Parent then
+                    v723:Destroy()
+                end
+            end
+            vu52 = {}
+            vu702 = {}
+        end
+        
+        if vu50 then
+            pcall(vu623)
+        else
+            for _, v655 in pairs(vu53) do
+                if v655 and v655.Parent then
+                    v655:Destroy()
+                end
+            end
+            for _, v724 in pairs(vu703) do
+                if v724 and v724.Parent then
+                    v724:Destroy()
+                end
+            end
+            vu53 = {}
+            vu703 = {}
+        end
+        
+        if vu51 then
+            pcall(vu647)
+        else
+            for _, v659 in pairs(vu54) do
+                if v659 and v659.Parent then
+                    v659:Destroy()
+                end
+            end
+            for _, v725 in pairs(vu704) do
+                if v725 and v725.Parent then
+                    v725:Destroy()
+                end
+            end
+            vu54 = {}
+            vu704 = {}
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(0.3) do
+        if vu27 and vu29 and #vu29 > 0 and not vu62 then
+            local v211 = vu1.LocalPlayer.Character
+            local v212
+            if v211 then
+                v212 = v211:FindFirstChild("HumanoidRootPart")
+            end
+            if v212 and not vu37 then
+                vu130()
+                task.wait(0.2)
+            end
+            if v211 and v212 then
+                local v213 = math.huge
+                local v217 = nil
+                
+                for _, v218 in pairs(vu29) do
+                    local v219 = vu91(v218)
+                    for _, v223 in pairs(v219) do
+                        if v223 and v223.Parent then
+                            local v224 = vu35[v223]
+                            local v225 = tick()
+                            if not v224 or (v225 - v224) >= vu36 then
+                                local v226 = v212.Position
+                                local v227 = v223.Position
+                                local v228 = (Vector3.new(v226.X, 0, v226.Z) - Vector3.new(v227.X, 0, v227.Z)).Magnitude
+                                if v228 < v213 then
+                                    v217 = v223
+                                    v213 = v228
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if v217 then
+                    local success = vu147(v217)
+                    if success then
+                        local v229 = v217:FindFirstAncestorWhichIsA("Model")
+                        vu171(v217, v229 and v229.Name or nil)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        
+        if vu45 and vu41 and #vu41 > 0 and not vu62 then
+            if vu27 and vu29 and #vu29 > 0 then
+                if vu110(vu29) then
+                    task.wait(0.5)
+                    continue
+                end
+            end
+            
+            local v372 = vu1.LocalPlayer.Character
+            local v373
+            if v372 then
+                v373 = v372:FindFirstChild("HumanoidRootPart")
+            end
+            
+            if v373 and not vu56 then
+                vu296()
+                task.wait(0.2)
+            end
+            
+            if v372 and v373 then
+                local v374 = math.huge
+                local v375 = vu41
+                local v379 = false
+                local v380 = nil
+                
+                for _, v381 in pairs(vu41) do
+                    if v381 == "全部" then
+                        v379 = true
+                        break
+                    end
+                end
+                
+                if v379 then
+                    v375 = vu330
+                end
+                
+                for _, v385 in pairs(v375) do
+                    local v386 = vu283(v385)
+                    if v386 then
+                        local v387 = v386:FindFirstChild("HumanoidRootPart") or v386.PrimaryPart or v386:FindFirstChildWhichIsA("BasePart", true)
+                        if v387 then
+                            local v388 = v373.Position
+                            local v389 = v387.Position
+                            local v390 = (Vector3.new(v388.X, 0, v388.Z) - Vector3.new(v389.X, 0, v389.Z)).Magnitude
+                            if v390 < v374 then
+                                v380 = v386
+                                v374 = v390
+                            end
+                        end
+                    end
+                end
+                
+                if v380 then
+                    if vu270(v380) then
+                        task.wait(0.1)
+                    else
+                        if vu701 == 1 then
+                            local success = vu307(v380)
+                            if success then
+                                vu329(v380, vu242(v380.Name))
+                            end
+                        else
+                            local success = vu307(v380)
+                            if success then
+                                vu705(v380, vu242(v380.Name))
+                            end
+                        end
+                    end
+                else
+                    task.wait(0.1)
+                end
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(5) do
+        local v230 = tick()
+        local v234 = {}
+        
+        for v233, v235 in pairs(vu35) do
+            if (v230 - v235) >= vu36 or not (v233 and v233.Parent) then
+                table.insert(v234, v233)
+            end
+        end
+        
+        for _, v239 in pairs(v234) do
+            vu35[v239] = nil
+        end
+    end
+end)
+
+v73.ShopPotion:Header({
+    Name = "💊 自动药水"
+})
+
+local function vu259()
+    vu58 = {}
+    local v252 = vu5:FindFirstChild("Assets")
+    if not v252 then
+        return vu58
+    end
+    local v253 = v252:FindFirstChild("Extras")
+    if not v253 then
+        return vu58
+    end
+    local v254 = v253:FindFirstChild("Potion")
+    if not v254 then
+        return vu58
+    end
+    for _, v258 in pairs(v254:GetChildren()) do
+        if v258:IsA("Model") then
+            table.insert(vu58, v258.Name)
+        end
+    end
+    table.sort(vu58)
+    return vu58
+end
+
+local function vu412(p411)
+    if p411 and p411 ~= "" then
+        local conversionTable = {
+            MovementSpeedPotion1 = "SpeedPotion1",
+            LuckyPotion1 = "LuckPotion1"
+        }
+        return conversionTable[p411] or p411
+    else
+        return nil
+    end
+end
+
+local function vu726()
+    local v727 = vu1.LocalPlayer.Character
+    if not v727 then
+        return false
+    end
+    local v728 = v727:FindFirstChild("HumanoidRootPart")
+    if not v728 then
+        return false
+    end
+    local v729 = game.PlaceId
+    local v730
+    if v729 == 76558904092080 then
+        v730 = Vector3.new(-153.73959721191406, 27.377073287963867, 116.34660339355469)
+    elseif v729 == 129009554587176 then
+        v730 = Vector3.new(-96.84030151367188, 20.6254825592041, -43.52947235107422)
+    else
+        v730 = Vector3.new(-153.73959721191406, 27.377073287963867, 116.34660339355469)
+    end
+    local v731 = (v728.Position - v730).Magnitude
+    local v732 = math.clamp(v731 / 5, 3, 12)
+    local v733 = CFrame.new(v730, v730 + v728.CFrame.LookVector * Vector3.new(1, 0, 1))
+    local v734 = vu3:Create(v728, TweenInfo.new(v732, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+        CFrame = v733
+    })
+    v734:Play()
+    v734.Completed:Wait()
+    return true
+end
+
+local v402 = vu259()
+local v402Chinese = {}
+for _, potion in pairs(v402) do
+    table.insert(v402Chinese, TranslateToChinese(potion) .. " (" .. potion .. ")")
+end
+
+local vu408 = v73.ShopPotion:Dropdown({
+    Name = "选择药水",
+    Multi = true,
+    Required = false,
+    Options = v402Chinese,
+    Default = {},
+    Callback = function(p403)
+        if typeof(p403) ~= "table" then
+            vu60 = {}
+        else
+            vu60 = {}
+            for v406, v407 in pairs(p403) do
+                if v407 then
+                    local englishValue = GetEnglishValue(v406)
+                    table.insert(vu60, englishValue)
+                end
+            end
+        end
+        if vu60 and #vu60 ~= 0 then
+            vu15.CurrentConfig.SelectedPotionName = vu60
+        else
+            vu60 = {}
+            vu15.CurrentConfig.SelectedPotionName = {}
+        end
+        pcall(function() vu15:SaveConfig() end)
+    end
+}, "SelectPotionDropdown")
+
+v73.ShopPotion:Button({
+    Name = "刷新药水列表",
+    Callback = function()
+        local v409 = vu259()
+        local v409Chinese = {}
+        for _, potion in pairs(v409) do
+            table.insert(v409Chinese, TranslateToChinese(potion) .. " (" .. potion .. ")")
+        end
+        if vu408 then
+            if vu408.ClearOptions then
+                vu408:ClearOptions()
+            end
+            if vu408.InsertOptions then
+                vu408:InsertOptions(v409Chinese)
+            end
+        end
+        vu22("药水", "药水列表已刷新", 3)
+    end
+}, "RefreshPotionListButton")
+
+v73.ShopPotion:Toggle({
+    Name = "自动购买使用药水",
+    Default = vu61,
+    Callback = function(p410)
+        vu61 = p410
+        vu15.CurrentConfig.AutoBuyAndUsePotionEnabled = p410
+        pcall(function() vu15:SaveConfig() end)
+        if p410 and (not vu60 or #vu60 == 0) then
+            vu22("药水", "请先选择药水!", 3)
+        end
+    end
+}, "AutoBuyAndUsePotionToggle")
+
+local function vu418(p413)
+    local v414 = vu1.LocalPlayer
+    if not v414 then
+        return false
+    end
+    local v415 = v414:FindFirstChild("PlayerGui")
+    if not v415 then
+        return false
+    end
+    local v416 = v415:FindFirstChild("Hotbar")
+    if not v416 then
+        return false
+    end
+    local v417 = v416:FindFirstChild("Perks")
+    if not v417 then
+        return false
+    end
+    
+    local convertedName = vu412(p413)
+    return (v417:FindFirstChild(convertedName) or v417:FindFirstChild(p413)) and true or false
+end
+
+task.spawn(function()
+    local vu419 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("ToolService"):WaitForChild("RF"):WaitForChild("ToolActivated")
+    
+    while true do
+        task.wait(0.5)
+        
+        if vu61 and vu60 and #vu60 > 0 then
+            vu62 = true
+            
+            if vu38 then
+                vu38:Disconnect()
+                vu38 = nil
+            end
+            if vu57 then
+                vu57:Disconnect()
+                vu57 = nil
+            end
+            vu37 = false
+            vu56 = false
+            
+            local v420 = vu1.LocalPlayer
+            local v421 = v420:FindFirstChild("Backpack")
+            
+            local v422 = false
+            local v420gui = v420:FindFirstChild("PlayerGui")
+            if v420gui then
+                local v423 = v420gui:FindFirstChild("Main")
+                if v423 then
+                    v423 = v423:FindFirstChild("Screen")
+                end
+                if v423 then
+                    v423 = v423:FindFirstChild("Hud")
+                end
+                if v423 then
+                    v423 = v423:FindFirstChild("Gold")
+                end
+                if v423 and v423:IsA("TextLabel") then
+                    local v424 = (v423.Text or ""):gsub("[^%d%.]", "")
+                    v422 = (tonumber(v424) or 0) >= 600
+                end
+            end
+            
+            if vu61 and v422 then
+                for _, vu428 in pairs(vu60) do
+                    if not vu61 then break end
+                    
+                    local v429 = v421 and v421:FindFirstChild(vu428)
+                    
+                    if v429 then
+                        pcall(function()
+                            vu419:InvokeServer(vu428)
+                        end)
+                        task.wait(0.1)
+                    elseif not vu418(vu428) then
+                        if vu726() then
+                            pcall(function()
+                                vu6:InvokeServer(vu428, 3)
+                            end)
+                            task.wait(0.5)
+                        end
+                    end
+                end
+            end
+            
+            vu62 = false
+        end
+    end
+end)
+
+v73.SellItem:Header({
+    Name = "💰 自动出售物品"
+})
+
+local function vu452(p439)
+    local v440 = vu1.LocalPlayer
+    if not v440 then
+        return 0
+    end
+    local v441 = v440:FindFirstChild("PlayerGui")
+    if not v441 then
+        return 0
+    end
+    
+    local function tryFindQuantity(path)
+        local current = v441
+        for _, part in ipairs(path) do
+            if current then
+                current = current:FindFirstChild(part)
+            else
+                break
+            end
+        end
+        return current
+    end
+    
+    local quantityPaths = {
+        {"Menu", "Frame", "Frame", "Menus", "Stash", "Background", p439, "Main", "Quantity"},
+        {"Main", "Screen", "Stash", "Background", p439, "Main", "Quantity"},
+        {"Menu", "Main", "Stash", "Items", p439, "Quantity"},
+        {"Stash", "Background", p439, "Main", "Quantity"}
+    }
+    
+    for _, path in ipairs(quantityPaths) do
+        local quantityLabel = tryFindQuantity(path)
+        if quantityLabel and quantityLabel:IsA("TextLabel") then
+            local text = quantityLabel.Text or ""
+            local number = text:gsub("[^%d]", "")
+            return tonumber(number) or 0
+        end
+    end
+    
+    return 0
+end
+
+local function vu438()
+    vu63 = {}
+    local v432 = vu5:FindFirstChild("Assets")
+    if not v432 then
+        return vu63
+    end
+    local v433 = v432:FindFirstChild("Ores")
+    if not v433 then
+        return vu63
+    end
+    for _, v437 in pairs(v433:GetChildren()) do
+        if v437:IsA("Model") then
+            table.insert(vu63, v437.Name)
+        end
+    end
+    table.sort(vu63)
+    return vu63
+end
+
+local function vu459()
+    local v456 = {}
+    for _, v457 in pairs(vu63) do
+        local v458 = vu452(v457)
+        if v458 > 0 then
+            table.insert(v456, TranslateToChinese(v457) .. " (" .. v457 .. ") [" .. tostring(v458) .. "]")
+        else
+            table.insert(v456, TranslateToChinese(v457) .. " (" .. v457 .. ")")
+        end
+    end
+    return v456
+end
+
+local function v467()
+    local v464 = {}
+    for _, v465 in pairs(vu65 or {}) do
+        local v466 = vu452(v465)
+        if v466 > 0 then
+            table.insert(v464, TranslateToChinese(v465) .. " (" .. v465 .. ") [" .. tostring(v466) .. "]")
+        else
+            table.insert(v464, TranslateToChinese(v465) .. " (" .. v465 .. ")")
+        end
+    end
+    return v464
+end
+
+local vu460 = vu438()
+local vu460Chinese = vu459()
+
+local vu474 = v73.SellItem:Dropdown({
+    Name = "选择物品",
+    Multi = true,
+    Required = false,
+    Options = vu460Chinese,
+    Default = v467(),
+    Callback = function(p468)
+        if typeof(p468) ~= "table" then
+            vu65 = {}
+        else
+            vu65 = {}
+            for v471, v472 in pairs(p468) do
+                if v472 then
+                    local startPos, endPos = string.find(v471, "%((.+)%)")
+                    if startPos and endPos then
+                        local englishName = string.sub(v471, startPos+1, endPos-1)
+                        table.insert(vu65, englishName)
+                    end
+                end
+            end
+        end
+        vu15.CurrentConfig.SelectedItemName = vu65
+        pcall(function() vu15:SaveConfig() end)
+    end
+}, "SelectItemDropdown")
+
+v73.SellItem:Button({
+    Name = "刷新物品列表",
+    Callback = function()
+        vu460 = vu438()
+        local vu460ChineseNew = vu459()
+        if vu474 then
+            if vu474.ClearOptions then
+                vu474:ClearOptions()
+            end
+            if vu474.InsertOptions then
+                vu474:InsertOptions(vu460ChineseNew)
+            end
+            if vu65 and #vu65 > 0 then
+                local selectedOptions = {}
+                for _, selectedItem in ipairs(vu65) do
+                    local chineseName = TranslateToChinese(selectedItem)
+                    for _, option in ipairs(vu460ChineseNew) do
+                        if option:find(selectedItem, 1, true) then
+                            table.insert(selectedOptions, option)
+                            break
+                        end
+                    end
+                end
+                if #selectedOptions > 0 and vu474.UpdateSelection then
+                    vu474:UpdateSelection(selectedOptions)
+                end
+            end
+        end
+        vu22("出售", "物品列表已刷新", 3)
+    end
+}, "RefreshItemListButton")
+
+v73.SellItem:Toggle({
+    Name = "自动出售物品",
+    Default = vu66,
+    Callback = function(p486)
+        vu66 = p486
+        vu15.CurrentConfig.AutoSellItemEnabled = p486
+        pcall(function() vu15:SaveConfig() end)
+        if p486 then
+            if vu65 and #vu65 ~= 0 then
+                vu67 = nil
+                vu68 = false
+            else
+                vu22("出售", "请先选择物品!", 3)
+            end
+        else
+            vu67 = nil
+            vu68 = false
+        end
+    end
+}, "AutoSellItemToggle")
+
+task.spawn(function()
+    local vu487 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("DialogueService"):WaitForChild("RF"):WaitForChild("RunCommand")
+    local vu488 = vu5:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("ProximityService"):WaitForChild("RF"):WaitForChild("ForceDialogue")
+    
+    while true do
+        task.wait(2)
+        
+        if vu66 and vu65 and #vu65 > 0 then
+            vu62 = true
+            
+            if vu38 then
+                vu38:Disconnect()
+                vu38 = nil
+            end
+            if vu57 then
+                vu57:Disconnect()
+                vu57 = nil
+            end
+            if vu287 then
+                pcall(function() vu287:Cancel() end)
+                vu287 = nil
+            end
+            vu37 = false
+            vu56 = false
+            
+            if not vu67 then
+                local v489 = workspace:FindFirstChild("Proximity")
+                if v489 then
+                    local npcNames = {"Greedy Cey", "GreedyCey", "Greedy", "Cey"}
+                    for _, npcName in ipairs(npcNames) do
+                        local v490 = v489:FindFirstChild(npcName)
+                        if v490 then
+                            vu67 = v490
+                            break
+                        end
+                    end
+                end
+            end
+            
+            if vu67 and not vu68 then
+                local character = vu1.LocalPlayer.Character
+                if character then
+                    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+                    if humanoidRootPart then
+                        local npcPart = vu67:FindFirstChild("HumanoidRootPart") or vu67.PrimaryPart or vu67:FindFirstChildWhichIsA("BasePart", true)
+                        if npcPart then
+                            local targetPos = npcPart.Position + Vector3.new(0, 5, 0)
+                            local distance = (humanoidRootPart.Position - targetPos).Magnitude
+                            local tweenTime = math.clamp(distance / 10, 1, 3)
+                            
+                            local tween = vu3:Create(humanoidRootPart, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {
+                                CFrame = CFrame.new(targetPos)
+                            })
+                            tween:Play()
+                            tween.Completed:Wait()
+                            
+                            task.wait(0.5)
+                        end
+                    end
+                end
+                
+                local success = pcall(function()
+                    vu488:InvokeServer(vu67, "SellConfirmMisc")
+                end)
+                
+                if success then
+                    vu68 = true
+                    vu22("出售", "已打开出售界面", 3)
+                    task.wait(1)
+                else
+                    vu22("出售", "打开出售界面失败", 3)
+                    vu67 = nil
+                end
+            end
+            
+            if vu67 and vu68 then
+                local itemsToSell = {}
+                local hasItems = false
+                
+                for _, itemName in ipairs(vu65) do
+                    local quantity = vu452(itemName)
+                    if quantity and quantity > 0 then
+                        itemsToSell[itemName] = quantity
+                        hasItems = true
+                    end
+                end
+                
+                if hasItems then
+                    local success = pcall(function()
+                        vu487:InvokeServer("SellConfirm", {Basket = itemsToSell})
+                    end)
+                    
+                    if success then
+                        local soldItems = ""
+                        for itemName, quantity in pairs(itemsToSell) do
+                            soldItems = soldItems .. TranslateToChinese(itemName) .. "x" .. quantity .. " "
+                        end
+                        vu22("出售", "成功出售: " .. soldItems, 5)
+                    else
+                        vu22("出售", "出售请求失败", 3)
+                    end
+                    
+                    task.wait(1)
+                else
+                    task.wait(3)
+                end
+            end
+            
+            vu62 = false
+        else
+            task.wait(3)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if vu474 then
+            vu460 = vu438()
+            local itemOptions = {}
+            
+            for _, itemName in ipairs(vu460) do
+                local quantity = vu452(itemName)
+                if quantity > 0 then
+                    table.insert(itemOptions, TranslateToChinese(itemName) .. " (" .. itemName .. ") [" .. quantity .. "]")
+                else
+                    table.insert(itemOptions, TranslateToChinese(itemName) .. " (" .. itemName .. ")")
+                end
+            end
+            
+            if #itemOptions > 0 then
+                if vu474.ClearOptions then
+                    vu474:ClearOptions()
+                end
+                if vu474.InsertOptions then
+                    vu474:InsertOptions(itemOptions)
+                end
+                
+                if vu65 and #vu65 > 0 then
+                    local selectedOptions = {}
+                    for _, selectedItem in ipairs(vu65) do
+                        local chineseName = TranslateToChinese(selectedItem)
+                        for _, option in ipairs(itemOptions) do
+                            if option:find(selectedItem, 1, true) then
+                                table.insert(selectedOptions, option)
+                                break
+                            end
+                        end
+                    end
+                    
+                    if #selectedOptions > 0 and vu474.UpdateSelection then
+                        vu474:UpdateSelection(selectedOptions)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+v73.TeleportNPC:Header({
+    Name = "🚀 传送到NPC"
+})
+
+local function vu515()
+    vu69 = {}
+    local v510 = workspace:FindFirstChild("Proximity")
+    if not v510 then
+        return vu69
+    end
+    for _, v514 in pairs(v510:GetChildren()) do
+        if v514:IsA("Model") and not v514.Name:lower():find("potion") then
+            table.insert(vu69, v514.Name)
+        end
+    end
+    table.sort(vu69)
+    return vu69
+end
+
+local function vu521()
+    vu71 = {}
+    local v516 = workspace:FindFirstChild("Shops")
+    if not v516 then
+        return vu71
+    end
+    for _, v520 in pairs(v516:GetChildren()) do
+        if v520:IsA("Model") then
+            table.insert(vu71, v520.Name)
+        end
+    end
+    table.sort(vu71)
+    return vu71
+end
+
+local function vu535(p522, p523)
+    local v524 = vu1.LocalPlayer.Character
+    if not v524 then
+        vu22("传送", "角色未找到!", 3)
+        return false
+    end
+    local v525 = v524:FindFirstChild("HumanoidRootPart")
+    if not v525 then
+        vu22("传送", "HumanoidRootPart未找到!", 3)
+        return false
+    end
+    local v526 = p523 and workspace:FindFirstChild("Proximity") or workspace:FindFirstChild("Shops")
+    if not v526 then
+        vu22("传送", "未找到文件夹!", 3)
+        return false
+    end
+    local v527 = v526:FindFirstChild(p522)
+    if not v527 then
+        vu22("传送", "未找到 " .. p522 .. "!", 3)
+        return false
+    end
+    local v528 = v527:FindFirstChild("HumanoidRootPart") or v527.PrimaryPart or v527:FindFirstChildWhichIsA("BasePart", true)
+    if not v528 then
+        vu22("传送", "未找到 " .. p522 .. " 的部件!", 3)
+        return false
+    end
+    local v529 = v528.Position + Vector3.new(0, 3, 0)
+    local v530 = (v525.Position - v529).Magnitude
+    local v531 = math.clamp(v530 / 10, 1.5, 8)
+    local v532 = vu3
+    local v533 = {CFrame = CFrame.new(v529, v528.Position)}
+    local v534 = v532:Create(v525, TweenInfo.new(v531, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), v533)
+    v534:Play()
+    v534.Completed:Wait()
+    vu22("传送", "已传送到 " .. TranslateToChinese(p522), 3)
+    return true
+end
+
+local vu536 = vu515()
+local vu536Chinese = {}
+for _, npc in pairs(vu536) do
+    table.insert(vu536Chinese, TranslateToChinese(npc) .. " (" .. npc .. ")")
+end
+
+local vu542 = v73.TeleportNPC:Dropdown({
+    Name = "选择NPC",
+    Multi = false,
+    Required = false,
+    Options = vu536Chinese,
+    Default = nil,
+    Callback = function(p537)
+        local v538
+        if typeof(p537) ~= "table" then
+            v538 = p537
+        else
+            for v539, v541 in pairs(p537) do
+                if v541 then
+                    v538 = v539
+                    break
+                end
+            end
+        end
+        if v538 and v538 ~= "" then
+            vu70 = GetEnglishValue(v538)
+        else
+            vu70 = nil
+        end
+    end
+}, "SelectNPCDropdown")
+
+v73.TeleportNPC:Button({
+    Name = "刷新NPC列表",
+    Callback = function()
+        local v543 = vu515()
+        vu536 = v543
+        local v543Chinese = {}
+        for _, npc in pairs(v543) do
+            table.insert(v543Chinese, TranslateToChinese(npc) .. " (" .. npc .. ")")
+        end
+        if vu542 then
+            if vu542.ClearOptions then
+                vu542:ClearOptions()
+            end
+            if vu542.InsertOptions then
+                vu542:InsertOptions(v543Chinese)
+            end
+        end
+        vu22("传送", "NPC列表已更新", 3)
+    end
+}, "RefreshNPCListButton")
+
+v73.TeleportNPC:Button({
+    Name = "传送到NPC",
+    Callback = function()
+        if vu70 then
+            vu535(vu70, true)
+        else
+            vu22("传送", "请先选择一个NPC!", 3)
+        end
+    end
+}, "TweenToNPCButton")
+
+v73.TeleportShop:Header({
+    Name = "🛒 传送到商店"
+})
+
+local vu544 = vu521()
+local vu544Chinese = {}
+for _, shop in pairs(vu544) do
+    table.insert(vu544Chinese, TranslateToChinese(shop) .. " (" .. shop .. ")")
+end
+
+local vu550 = v73.TeleportShop:Dropdown({
+    Name = "选择商店",
+    Multi = false,
+    Required = false,
+    Options = vu544Chinese,
+    Default = nil,
+    Callback = function(p545)
+        local v546
+        if typeof(p545) ~= "table" then
+            v546 = p545
+        else
+            for v547, v549 in pairs(p545) do
+                if v549 then
+                    v546 = v547
+                    break
+                end
+            end
+        end
+        if v546 and v546 ~= "" then
+            vu72 = GetEnglishValue(v546)
+        else
+            vu72 = nil
+        end
+    end
+}, "SelectShopDropdown")
+
+v73.TeleportShop:Button({
+    Name = "刷新商店列表",
+    Callback = function()
+        local v551 = vu521()
+        vu544 = v551
+        local v551Chinese = {}
+        for _, shop in pairs(v551) do
+            table.insert(v551Chinese, TranslateToChinese(shop) .. " (" .. shop .. ")")
+        end
+        if vu550 then
+            if vu550.ClearOptions then
+                vu550:ClearOptions()
+            end
+            if vu550.InsertOptions then
+                vu550:InsertOptions(v551Chinese)
+            end
+        end
+        vu22("传送", "商店列表已更新", 3)
+    end
+}, "RefreshShopListButton")
+
+v73.TeleportShop:Button({
+    Name = "传送到商店",
+    Callback = function()
+        if vu72 then
+            vu535(vu72, false)
+        else
+            vu22("传送", "请先选择一个商店!", 3)
+        end
+    end
+}, "TweenToShopButton")
+
+v73.SettingsESP:Header({
+    Name = "👁️ ESP设置"
+})
+
+v73.SettingsESP:Toggle({
+    Name = "玩家ESP",
+    Default = vu51,
+    Callback = function(p671)
+        vu51 = p671
+        vu15.CurrentConfig.ESPPlayerEnabled = p671
+        pcall(function() vu15:SaveConfig() end)
+        vu22("ESP", (p671 and "开启" or "关闭") .. " 玩家ESP", 3)
+        if not p671 then
+            for _, v675 in pairs(vu54) do
+                if v675 and v675.Parent then
+                    v675:Destroy()
+                end
+            end
+            for _, v735 in pairs(vu704) do
+                if v735 and v735.Parent then
+                    v735:Destroy()
+                end
+            end
+            vu54 = {}
+            vu704 = {}
+        end
+    end
+}, "ESPPlayerToggle")
+
+v73.SettingsESP:Toggle({
+    Name = "防AFK",
+    Default = vu46,
+    Callback = function(p660)
+        vu46 = p660
+        vu15.CurrentConfig.AntiAFKEnabled = p660
+        pcall(function() vu15:SaveConfig() end)
+        vu22("防AFK", (p660 and "开启" or "关闭") .. " 防AFK", 3)
+    end
+}, "AntiAFKToggle")
+
+v73.SettingsUI:Header({
+    Name = "⚙️ UI设置"
+})
+
+v73.SettingsUI:Toggle({
+    Name = "UI模糊效果",
+    Default = vu676,
+    Callback = function(p676)
+        vu676 = p676
+        vu15.CurrentConfig.UIBlurEnabled = p676
+        pcall(function() vu15:SaveConfig() end)
+        if vu18 and vu18.SetAcrylicBlurState then
+            vu18:SetAcrylicBlurState(p676)
+        end
+        vu22("UI设置", (p676 and "开启" or "关闭") .. " UI模糊效果", 3)
+    end
+}, "UIBlurToggle")
+
+v73.SettingsUI:Toggle({
+    Name = "通知系统",
+    Default = vu677,
+    Callback = function(p677)
+        vu677 = p677
+        vu15.CurrentConfig.NotificationsEnabled = p677
+        pcall(function() vu15:SaveConfig() end)
+        if vu18 and vu18.SetNotificationsState then
+            vu18:SetNotificationsState(p677)
+        end
+        vu22("UI设置", (p677 and "开启" or "关闭") .. " 通知系统", 3)
+    end
+}, "NotificationToggle")
+
+v73.SettingsUI:Toggle({
+    Name = "显示用户信息",
+    Default = vu678,
+    Callback = function(p678)
+        vu678 = p678
+        vu15.CurrentConfig.ShowUserInfo = p678
+        pcall(function() vu15:SaveConfig() end)
+        if vu18 and vu18.SetUserInfoState then
+            vu18:SetUserInfoState(p678)
+        end
+        vu22("UI设置", (p678 and "显示" or "隐藏") .. " 用户信息", 3)
+    end
+}, "UserInfoToggle")
+
+v73.SettingsInfo:Header({
+    Name = "📝 脚本信息"
+})
+
+v73.SettingsInfo:Label({
+    Text = "人民的脚本 The Forge\n玩家: " .. vu16
+})
+
+v73.SettingsInfo:Button({
+    Name = "复制玩家名称",
+    Callback = function()
+        if setclipboard then
+            setclipboard(vu16)
+            vu22("通知", "已复制玩家名称", 3)
+        else
+            vu22("通知", vu16, 3)
+        end
+    end
+}, "CopyPlayerNameButton")
+
+v73.SettingsInfo:SubLabel({
+    Text = "快捷键: Left Alt 或点击移动端图标显示/隐藏UI"
+})
+
+v26.Farm:Select()
+
+if vu18 and vu18.onUnloaded then
+    vu18.onUnloaded(function()
+        vu22("人民的脚本 | The Forge", "界面已关闭", 3)
+    end)
+end
+
+task.wait(1)
+UpdateRockDropdownSelection()
+UpdateEnemyDropdownSelection()
+
+if vu18 then
+    if vu18.SetAcrylicBlurState then
+        vu18:SetAcrylicBlurState(vu676)
+    end
+    if vu18.SetNotificationsState then
+        vu18:SetNotificationsState(vu677)
+    end
+    if vu18.SetUserInfoState then
+        vu18:SetUserInfoState(vu678)
+    end
+end
+
+task.spawn(function()
+    while task.wait(30) do
+        pcall(function() vu15:SaveConfig() end)
+    end
+end)
+
+task.spawn(function()
+    local vu679 = game:GetService("VirtualUser")
+    while true do
+        task.wait(120)
+        if vu46 then
+            pcall(function()
+                local v680 = workspace.CurrentCamera
+                if v680 then
+                    vu679:Button2Down(Vector2.new(0, 0), v680.CFrame)
+                    task.wait(1)
+                    vu679:Button2Up(Vector2.new(0, 0), v680.CFrame)
+                end
+            end)
+        end
+    end
+end)
+
+task.spawn(function()
+    local success, errorMsg = pcall(function()
+        if not getgenv().LoadedTheForgeMobileUI == true then
+            getgenv().LoadedTheForgeMobileUI = true
+            
+            local screenGui = Instance.new("ScreenGui")
+            local mobileButton = Instance.new("ImageButton")
+            local uiCorner = Instance.new("UICorner")
+            
+            if syn and syn.protect_gui then
+                syn.protect_gui(screenGui)
+                screenGui.Parent = game:GetService("CoreGui")
+            elseif gethui then
+                screenGui.Parent = gethui()
+            else
+                screenGui.Parent = game:GetService("CoreGui")
+            end
+            
+            screenGui.Name = "ChinaScript_MobileUIButton"
+            screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+            screenGui.ResetOnSpawn = false
+            
+            mobileButton.Parent = screenGui
+            mobileButton.BackgroundColor3 = Color3.fromRGB(105, 105, 105)
+            mobileButton.BackgroundTransparency = 0.8
+            mobileButton.Position = UDim2.new(0.9, 0, 0.1, 0)
+            mobileButton.Size = UDim2.new(0, 50, 0, 50)
+            mobileButton.Image = "rbxassetid://9676276958"
+            mobileButton.Draggable = true
+            mobileButton.Transparency = 0.2
+            
+            uiCorner.CornerRadius = UDim.new(0, 200)
+            uiCorner.Parent = mobileButton
+            
+            mobileButton.MouseEnter:Connect(function()
+                game:GetService("TweenService"):Create(mobileButton, TweenInfo.new(0.2), {
+                    BackgroundTransparency = 0.5,
+                    Transparency = 0
+                }):Play()
+            end)
+            
+            mobileButton.MouseLeave:Connect(function()
+                game:GetService("TweenService"):Create(mobileButton, TweenInfo.new(0.2), {
+                    BackgroundTransparency = 0.8,
+                    Transparency = 0.2
+                }):Play()
+            end)
+            
+            mobileButton.MouseButton1Click:Connect(function()
+                game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.LeftAlt, false, game)
+                task.wait(0.1)
+                game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.LeftAlt, false, game)
+            end)
+        end
+    end)
+    
+    if not success then
+        warn("创建移动端界面按钮失败: " .. tostring(errorMsg))
+    end
+end)
+
+vu22("人民的脚本 | The Forge", 
+    "脚本已加载成功!\n" ..
+    "✅ 刷怪模式选择 (模式1/模式2)\n" ..
+    "✅ 根据屏幕大小自动调整UI\n" ..
+    "✅ 所有ESP功能添加高亮显示\n" ..
+    "✅ 自动挖矿功能（带冷却检测）\n" ..
+    "✅ 自动刷怪功能（模式2视角锁定）\n" ..
+    "✅ 矿石ESP（绿色高亮）\n" ..
+    "✅ 敌人ESP（红色高亮）\n" ..
+    "✅ 玩家ESP（蓝色高亮）\n" ..
+    "✅ 自动买药水（优化版）\n" ..
+    "✅ 自动出售物品\n" ..
+    "✅ 传送功能（NPC/商店）\n" ..
+    "✅ 防AFK系统\n" ..
+    "快捷键: Left Alt 显示/隐藏UI", 
+    10)
