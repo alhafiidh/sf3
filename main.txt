@@ -1,0 +1,1150 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+local Mercury = loadstring(game:HttpGet("https://raw.githubusercontent.com/deeeity/mercury-lib/master/src.lua"))()
+
+local TARGET_ORE_NAME = "Basalt Rock"
+local FLOAT_SPEED = 40
+local MINING_DISTANCE = 10
+local MOB_CHECK_DISTANCE = 30
+local CHECK_INTERVAL = 0.5
+local CLICK_DELAY = 0.5
+local DISCORD_URL = "https://discord-miner-bot--AlHafiidh.replit.app"
+local steppedConnection = nil
+local isRunning = false
+local isMining = false
+local lastOreData = {}
+local previousOres = {}
+local miningConnection = nil
+local positionConnection = nil
+
+-- Auto-notify ores
+local AUTO_NOTIFY_ORES = {
+    ["Demonite"] = true,
+    ["Fireite"] = true,
+    ["Darkyte"] = true,
+    ["Magmite"] = true
+}
+
+local GUI = Mercury:Create{
+    Name = "The Forge - Auto Miner",
+    Size = UDim2.fromOffset(600, 450),
+    Theme = Mercury.Themes.Dark,
+    Link = "https://github.com/deeeity/mercury-lib"
+}
+
+local MainTab = GUI:Tab{
+    Name = "Main",
+    Icon = "rbxassetid://8569322835"
+}
+
+local SettingsTab = GUI:Tab{
+    Name = "Settings",
+    Icon = "rbxassetid://7733955511"
+}
+
+local StatusTab = GUI:Tab{
+    Name = "Status",
+    Icon = "rbxassetid://7733764088"
+}
+
+local DiscordTab = GUI:Tab{
+    Name = "Discord",
+    Icon = "rbxassetid://7733674820"
+}
+
+local stats = {
+    oresMined = 0,
+    mobsKilled = 0,
+    status = "Idle"
+}
+
+-- Discord Integration Functions
+local function getBaseUrl()
+    local url = DISCORD_URL:gsub("%s+", "")
+    if url == "" or not string.find(url, "http") then
+        return nil
+    end
+    url = url:gsub("/$", "")
+    url = url:gsub("/mining%-status$", "")
+    url = url:gsub("/mining%-command$", "")
+    url = url:gsub("/gold%-mine$", "")
+    url = url:gsub("/gold%-update$", "")
+    url = url:gsub("/ore%-update$", "")
+    return url
+end
+
+local function sendStatusToDiscord()
+    local baseUrl = getBaseUrl()
+    if not baseUrl then return end
+    
+    local data = {
+        username = player.Name,
+        status = stats.status,
+        oresMined = stats.oresMined,
+        mobsKilled = stats.mobsKilled,
+        currentOre = TARGET_ORE_NAME,
+        isRunning = isRunning
+    }
+    
+    pcall(function()
+        request({
+            Url = baseUrl .. "/mining-status",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+end
+
+local function sendGoldToDiscord()
+    local baseUrl = getBaseUrl()
+    if not baseUrl then return end
+    
+    local goldLabel = player:WaitForChild("PlayerGui"):WaitForChild("Main"):WaitForChild("Screen"):WaitForChild("Hud"):WaitForChild("Gold", 10)
+    if not goldLabel then return end
+    
+    local data = {
+        username = player.Name,
+        gold = goldLabel.Text
+    }
+    
+    pcall(function()
+        request({
+            Url = baseUrl .. "/gold-update",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+end
+
+local function getStashOres()
+    local playerGui = player:WaitForChild("PlayerGui")
+    local stashGui = playerGui:FindFirstChild("Menu")
+    if stashGui then stashGui = stashGui:FindFirstChild("Frame") end
+    if stashGui then stashGui = stashGui:FindFirstChild("Frame") end
+    if stashGui then stashGui = stashGui:FindFirstChild("Menus") end
+    if stashGui then stashGui = stashGui:FindFirstChild("Stash") end
+    
+    if not stashGui then return {} end
+    
+    local ores = {}
+    for _, obj in pairs(stashGui:GetDescendants()) do
+        if obj:IsA("TextLabel") and obj.Text:match("^x%d+$") then
+            local qty = tonumber(obj.Text:sub(2))
+            if qty and qty > 0 then
+                local oreName = "Unknown"
+                for _, parent in pairs({obj.Parent, obj.Parent.Parent, obj.Parent.Parent.Parent}) do
+                    if parent then
+                        for _, sibling in pairs(parent:GetChildren()) do
+                            if sibling:IsA("TextLabel") and sibling ~= obj and sibling.Text ~= "" and not sibling.Text:match("^x") then
+                                oreName = sibling.Text:gsub("%*$", ""):gsub("^%s*(.-)%s*$", "%1")
+                                break
+                            end
+                        end
+                    end
+                    if oreName ~= "Unknown" then break end
+                end
+                
+                if oreName ~= "Unknown" and 
+                   not oreName:lower():find("essence") and 
+                   oreName ~= "Boneite" and 
+                   oreName ~= "Dark Boneite" then
+                    ores[oreName] = qty
+                end
+            end
+        end
+    end
+    
+    return ores
+end
+
+local function sendOresToDiscord()
+    local baseUrl = getBaseUrl()
+    if not baseUrl then return end
+    
+    local currentOres = getStashOres()
+    if not currentOres or next(currentOres) == nil then return end
+    
+    local data = {
+        username = player.Name,
+        ores = currentOres
+    }
+    
+    pcall(function()
+        request({
+            Url = baseUrl .. "/ore-update",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+    
+    -- Check for newly obtained rare ores
+    local newRareOres = {}
+    for oreName, qty in pairs(currentOres) do
+        if AUTO_NOTIFY_ORES[oreName] then
+            if not previousOres[oreName] or previousOres[oreName] == 0 then
+                table.insert(newRareOres, {name = oreName, amount = qty})
+            end
+        end
+    end
+    
+    -- Send notification for newly obtained rare ores
+    if #newRareOres > 0 then
+        for _, ore in ipairs(newRareOres) do
+            local notifData = {
+                username = player.Name,
+                message = "Got " .. ore.name .. "! (x" .. ore.amount .. ")"
+            }
+            pcall(function()
+                request({
+                    Url = baseUrl .. "/ore-notify",
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = HttpService:JSONEncode(notifData)
+                })
+            end)
+        end
+    end
+    
+    previousOres = currentOres
+end
+
+local function checkDiscordCommands()
+    local baseUrl = getBaseUrl()
+    if not baseUrl then return end
+    
+    local success, response = pcall(function()
+        return request({
+            Url = baseUrl .. "/",
+            Method = "GET"
+        })
+    end)
+    
+    if success and response.StatusCode == 200 then
+        local data = HttpService:JSONDecode(response.Body)
+        
+        if data.miningStatus then
+            local discordStatus = data.miningStatus
+            
+            if discordStatus.isRunning and not isRunning then
+                TARGET_ORE_NAME = discordStatus.currentOre
+                task.spawn(execute)
+                GUI:Notification{
+                    Title = "Discord Command",
+                    Text = "Mining started from Discord!",
+                    Duration = 3
+                }
+            end
+            
+            if not discordStatus.isRunning and isRunning then
+                isRunning = false
+                stopMining()
+                disableNoclip()
+                stats.status = "Stopped by Discord"
+                sendStatusToDiscord()
+                GUI:Notification{
+                    Title = "Discord Command",
+                    Text = "Mining stopped from Discord!",
+                    Duration = 3
+                }
+            end
+            
+            if discordStatus.currentOre and discordStatus.currentOre ~= TARGET_ORE_NAME and not isRunning then
+                TARGET_ORE_NAME = discordStatus.currentOre
+                sendStatusToDiscord()
+                GUI:Notification{
+                    Title = "Discord Command",
+                    Text = "Ore changed to: " .. TARGET_ORE_NAME,
+                    Duration = 3
+                }
+            end
+        end
+    end
+end
+
+-- Auto-update loop for gold and ores
+task.spawn(function()
+    while true do
+        task.wait(30) -- Check every 30 seconds
+        if DISCORD_URL ~= "" then
+            sendGoldToDiscord()
+            sendOresToDiscord()
+        end
+    end
+end)
+
+-- Send mining status updates
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if DISCORD_URL ~= "" then
+            sendStatusToDiscord()
+        end
+    end
+end)
+
+-- Check for Discord commands
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if DISCORD_URL ~= "" then
+            checkDiscordCommands()
+        end
+    end
+end)
+
+local function enableNoclip()
+    if steppedConnection then
+        steppedConnection:Disconnect()
+    end
+    
+    steppedConnection = RunService.Stepped:Connect(function()
+        if character and character.Parent then
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
+
+local function disableNoclip()
+    if steppedConnection then
+        steppedConnection:Disconnect()
+        steppedConnection = nil
+    end
+    
+    if character and character.Parent then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+local function getPickaxe()
+    local equippedTool = character:FindFirstChildOfClass("Tool")
+    if equippedTool and equippedTool.Name:lower():find("pickaxe") then
+        return equippedTool
+    end
+    
+    for _, tool in pairs(player.Backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name:lower():find("pickaxe") then
+            return tool
+        end
+    end
+    
+    return nil
+end
+
+local function equipPickaxe()
+    local pickaxe = getPickaxe()
+    if not pickaxe then return false end
+    if pickaxe.Parent ~= character then
+        humanoid:EquipTool(pickaxe)
+        task.wait(0.3)
+    end
+    return true
+end
+
+local function getWeapon()
+    local equippedTool = character:FindFirstChildOfClass("Tool")
+    if equippedTool and equippedTool.Name:lower():find("weapon") then
+        return equippedTool
+    end
+    
+    for _, tool in pairs(player.Backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name:lower():find("weapon") then
+            return tool
+        end
+    end
+    
+    return nil
+end
+
+local function equipWeapon()
+    local weapon = getWeapon()
+    if not weapon then return false end
+    if weapon.Parent ~= character then
+        humanoid:EquipTool(weapon)
+        task.wait(0.3)
+    end
+    return true
+end
+
+local function findNearbyMob()
+    local livingFolder = workspace:FindFirstChild("Living")
+    if not livingFolder then return nil end
+    
+    local closestMob = nil
+    local closestDistance = MOB_CHECK_DISTANCE
+    
+    for _, mob in pairs(livingFolder:GetChildren()) do
+        if mob:IsA("Model") and mob.Name ~= player.Name then
+            local mobHumanoid = mob:FindFirstChild("Humanoid")
+            local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso")
+            
+            if mobHumanoid and mobHumanoid.Health > 0 and mobRoot then
+                local distance = (mobRoot.Position - humanoidRootPart.Position).Magnitude
+                if distance < closestDistance then
+                    closestMob = mob
+                    closestDistance = distance
+                end
+            end
+        end
+    end
+    
+    return closestMob, closestDistance
+end
+
+local function hasGainedOres()
+    local currentOres = getStashOres()
+    
+    for oreName, qty in pairs(currentOres) do
+        local previousQty = lastOreData[oreName] or 0
+        if qty > previousQty then
+            return true
+        end
+    end
+    
+    return false
+end
+
+local function updateOreData()
+    lastOreData = getStashOres()
+end
+
+local function findAllBasaltRocks()
+    local locations = {}
+    local rocksFolder = workspace:FindFirstChild("Rocks")
+    if rocksFolder then
+        for _, islandFolder in pairs(rocksFolder:GetChildren()) do
+            if islandFolder:IsA("Folder") then
+                for _, spawnLocation in pairs(islandFolder:GetChildren()) do
+                    local basaltRock = spawnLocation:FindFirstChild(TARGET_ORE_NAME)
+                    if basaltRock and basaltRock:IsA("Model") then
+                        local primaryPart = basaltRock.PrimaryPart or basaltRock:FindFirstChildWhichIsA("BasePart")
+                        if primaryPart then
+                            table.insert(locations, {
+                                name = islandFolder.Name .. "/" .. spawnLocation.Name,
+                                position = primaryPart.Position,
+                                rock = basaltRock,
+                                spawnLocation = spawnLocation
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return locations
+end
+
+local function oreExists(location)
+    if not location.spawnLocation or not location.spawnLocation.Parent then
+        return false
+    end
+    
+    local ore = location.spawnLocation:FindFirstChild(TARGET_ORE_NAME)
+    if not ore or not ore:IsA("Model") or not ore.Parent then
+        return false
+    end
+    
+    local hasParts = false
+    for _, part in pairs(ore:GetDescendants()) do
+        if part:IsA("BasePart") and part.Transparency < 1 then
+            hasParts = true
+            break
+        end
+    end
+    
+    return hasParts
+end
+
+local function floatToPosition(targetPosition)
+    if not character or not character.Parent then return false end
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    
+    local endPos = targetPosition + Vector3.new(0, MINING_DISTANCE, 0)
+    local distance = (endPos - humanoidRootPart.Position).Magnitude
+    local duration = distance / FLOAT_SPEED
+    
+    local floatTween = TweenService:Create(
+        humanoidRootPart,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+        {CFrame = CFrame.new(endPos)}
+    )
+    floatTween:Play()
+    floatTween.Completed:Wait()
+    
+    return true
+end
+
+local function startMining(targetPosition)
+    if miningConnection then miningConnection:Disconnect() end
+    if positionConnection then positionConnection:Disconnect() end
+    
+    positionConnection = RunService.Heartbeat:Connect(function()
+        if humanoidRootPart and humanoidRootPart.Parent then
+            local targetPos = targetPosition + Vector3.new(0, MINING_DISTANCE, 0)
+            humanoidRootPart.CFrame = CFrame.new(targetPos)
+            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end
+    end)
+    
+    task.wait(0.5)
+    if not equipPickaxe() then
+        return
+    end
+    
+    local lastMineTime = 0
+    miningConnection = RunService.Heartbeat:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastMineTime >= CLICK_DELAY then
+            local pickaxe = character:FindFirstChildOfClass("Tool")
+            if pickaxe then
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.01)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastMineTime = currentTime
+            else
+                equipPickaxe()
+            end
+        end
+    end)
+    
+    isMining = true
+end
+
+local function stopMining()
+    if miningConnection then
+        miningConnection:Disconnect()
+        miningConnection = nil
+    end
+    if positionConnection then
+        positionConnection:Disconnect()
+        positionConnection = nil
+    end
+    isMining = false
+end
+
+local function killMob(mob)
+    local mobHumanoid = mob:FindFirstChild("Humanoid")
+    local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso")
+    
+    if not mobRoot or not mobHumanoid then return false end
+    if not equipWeapon() then return false end
+    
+    stats.status = "Fighting " .. mob.Name
+    sendStatusToDiscord()
+    
+    local mobLookVector = mobRoot.CFrame.LookVector
+    local behindOffset = -mobLookVector * 5
+    local combatPos = mobRoot.Position + behindOffset + Vector3.new(0, 2, 0)
+    
+    local distance = (combatPos - humanoidRootPart.Position).Magnitude
+    local duration = distance / FLOAT_SPEED
+    
+    local floatTween = TweenService:Create(
+        humanoidRootPart,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+        {CFrame = CFrame.new(combatPos)}
+    )
+    floatTween:Play()
+    floatTween.Completed:Wait()
+    
+    humanoid.PlatformStand = true
+    
+    local lastAttackTime = 0
+    local combatConnection = RunService.Heartbeat:Connect(function()
+        if mobRoot and mobRoot.Parent and humanoidRootPart and humanoidRootPart.Parent then
+            local currentMobLookVector = mobRoot.CFrame.LookVector
+            local currentBehindOffset = -currentMobLookVector * 5
+            local targetPos = mobRoot.Position + currentBehindOffset + Vector3.new(0, 2, 0)
+            
+            humanoidRootPart.CFrame = CFrame.new(targetPos)
+            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+            humanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+        end
+    end)
+    
+    local attackConnection = RunService.Heartbeat:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastAttackTime >= CLICK_DELAY then
+            if character:FindFirstChildOfClass("Tool") then
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastAttackTime = currentTime
+            end
+        end
+    end)
+    
+    while mobHumanoid and mobHumanoid.Health > 0 and mobRoot and mobRoot.Parent and isRunning do
+        task.wait(0.1)
+    end
+    
+    humanoid.PlatformStand = false
+    
+    if combatConnection then combatConnection:Disconnect() end
+    if attackConnection then attackConnection:Disconnect() end
+    
+    stats.mobsKilled = stats.mobsKilled + 1
+    sendStatusToDiscord()
+    return true
+end
+
+local function mineAndWait(location)
+    stats.status = "Mining: " .. location.name
+    sendStatusToDiscord()
+    
+    if not equipPickaxe() then 
+        return false 
+    end
+    
+    updateOreData()
+    startMining(location.position)
+    
+    local miningStartTime = tick()
+    local maxMiningTime = 60
+    
+    while oreExists(location) and isRunning and (tick() - miningStartTime < maxMiningTime) do
+        task.wait(CHECK_INTERVAL)
+        
+        if hasGainedOres() then
+            stats.oresMined = stats.oresMined + 1
+            sendStatusToDiscord()
+            sendOresToDiscord()
+            break
+        end
+        
+        if not isMining then
+            startMining(location.position)
+        end
+        
+        local mob, distance = findNearbyMob()
+        if mob then
+            stopMining()
+            killMob(mob)
+            task.wait(0.5)
+            
+            if not oreExists(location) then 
+                break 
+            end
+            if not equipPickaxe() then 
+                return false 
+            end
+            
+            stats.status = "Mining: " .. location.name
+            startMining(location.position)
+        end
+    end
+    
+    stopMining()
+    return true
+end
+
+local function execute()
+    isRunning = true
+    stats.status = "Starting..."
+    stats.oresMined = 0
+    stats.mobsKilled = 0
+    sendStatusToDiscord()
+    
+    enableNoclip()
+    
+    local locations = findAllBasaltRocks()
+    
+    if #locations == 0 then
+        stats.status = "No ores found!"
+        sendStatusToDiscord()
+        disableNoclip()
+        isRunning = false
+        return
+    end
+    
+    for i, location in ipairs(locations) do
+        if not isRunning then 
+            break 
+        end
+        
+        stats.status = "Traveling [" .. i .. "/" .. #locations .. "]"
+        sendStatusToDiscord()
+        
+        if not oreExists(location) then 
+            continue 
+        end
+        
+        local success = floatToPosition(location.position)
+        if not success then 
+            continue 
+        end
+        
+        mineAndWait(location)
+        task.wait(1)
+    end
+    
+    stats.status = "Complete!"
+    sendStatusToDiscord()
+    sendOresToDiscord()
+    stopMining()
+    disableNoclip()
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+    
+    isRunning = false
+end
+
+execute = function()
+    isRunning = true
+    stats.status = "Starting..."
+    stats.oresMined = 0
+    stats.mobsKilled = 0
+    sendStatusToDiscord()
+    
+    enableNoclip()
+    
+    local locations = findAllBasaltRocks()
+    
+    if #locations == 0 then
+        stats.status = "No ores found!"
+        sendStatusToDiscord()
+        disableNoclip()
+        isRunning = false
+        return
+    end
+    
+    for i, location in ipairs(locations) do
+        if not isRunning then 
+            break 
+        end
+        
+        stats.status = "Traveling [" .. i .. "/" .. #locations .. "]"
+        sendStatusToDiscord()
+        
+        if not oreExists(location) then 
+            continue 
+        end
+        
+        local success = floatToPosition(location.position)
+        if not success then 
+            continue 
+        end
+        
+        mineAndWait(location)
+        task.wait(1)
+    end
+    
+    stats.status = "Complete!"
+    sendStatusToDiscord()
+    sendOresToDiscord()
+    stopMining()
+    disableNoclip()
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+    
+    isRunning = false
+end
+
+local function killMob(mob)
+    local mobHumanoid = mob:FindFirstChild("Humanoid")
+    local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso")
+    
+    if not mobRoot or not mobHumanoid then return false end
+    if not equipWeapon() then return false end
+    
+    stats.status = "Fighting " .. mob.Name
+    sendStatusToDiscord()
+    
+    local mobLookVector = mobRoot.CFrame.LookVector
+    local behindOffset = -mobLookVector * 5
+    local combatPos = mobRoot.Position + behindOffset + Vector3.new(0, 2, 0)
+    
+    local distance = (combatPos - humanoidRootPart.Position).Magnitude
+    local duration = distance / FLOAT_SPEED
+    
+    local floatTween = TweenService:Create(
+        humanoidRootPart,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+        {CFrame = CFrame.new(combatPos)}
+    )
+    floatTween:Play()
+    floatTween.Completed:Wait()
+    
+    humanoid.PlatformStand = true
+    
+    local lastAttackTime = 0
+    local combatConnection = RunService.Heartbeat:Connect(function()
+        if mobRoot and mobRoot.Parent and humanoidRootPart and humanoidRootPart.Parent then
+            local currentMobLookVector = mobRoot.CFrame.LookVector
+            local currentBehindOffset = -currentMobLookVector * 5
+            local targetPos = mobRoot.Position + currentBehindOffset + Vector3.new(0, 2, 0)
+            
+            humanoidRootPart.CFrame = CFrame.new(targetPos)
+            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+            humanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+        end
+    end)
+    
+    local attackConnection = RunService.Heartbeat:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastAttackTime >= CLICK_DELAY then
+            if character:FindFirstChildOfClass("Tool") then
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastAttackTime = currentTime
+            end
+        end
+    end)
+    
+    while mobHumanoid and mobHumanoid.Health > 0 and mobRoot and mobRoot.Parent and isRunning do
+        task.wait(0.1)
+    end
+    
+    humanoid.PlatformStand = false
+    
+    if combatConnection then combatConnection:Disconnect() end
+    if attackConnection then attackConnection:Disconnect() end
+    
+    stats.mobsKilled = stats.mobsKilled + 1
+    sendStatusToDiscord()
+    return true
+end
+
+local function mineAndWait(location)
+    stats.status = "Mining: " .. location.name
+    sendStatusToDiscord()
+    print("🎯 Target location:", location.name)
+    
+    if not equipPickaxe() then 
+        print("❌ Failed to equip pickaxe")
+        return false 
+    end
+    
+    print("✅ Pickaxe equipped")
+    
+    updateOreData()
+    print("📊 Ore data snapshot taken")
+    
+    startMining(location.position)
+    
+    local miningStartTime = tick()
+    local maxMiningTime = 60 -- Maximum 60 seconds per ore
+    
+    while oreExists(location) and isRunning and (tick() - miningStartTime < maxMiningTime) do
+        task.wait(CHECK_INTERVAL)
+        
+        if hasGainedOres() then
+            stats.oresMined = stats.oresMined + 1
+            sendStatusToDiscord()
+            sendOresToDiscord()
+            print("✅ Ore mined! Total:", stats.oresMined)
+            break
+        end
+        
+        -- Check if we're still mining
+        if not isMining then
+            print("⚠️ Mining stopped unexpectedly, restarting...")
+            startMining(location.position)
+        end
+        
+        local mob, distance = findNearbyMob()
+        if mob then
+            print("⚔️ Mob detected:", mob.Name)
+            stopMining()
+            killMob(mob)
+            task.wait(0.5)
+            
+            if not oreExists(location) then 
+                print("❌ Ore disappeared during combat")
+                break 
+            end
+            if not equipPickaxe() then 
+                print("❌ Failed to re-equip pickaxe after combat")
+                return false 
+            end
+            
+            print("🔄 Resuming mining after combat")
+            stats.status = "Mining: " .. location.name
+            startMining(location.position)
+        end
+    end
+    
+    if tick() - miningStartTime >= maxMiningTime then
+        print("⏱️ Mining timeout reached, moving to next ore")
+    end
+    
+    stopMining()
+    print("🛑 Mining stopped for this location")
+    return true
+end
+
+function execute()
+    print("🚀 ==================== MINING STARTED ====================")
+    isRunning = true
+    stats.status = "Starting..."
+    stats.oresMined = 0
+    stats.mobsKilled = 0
+    sendStatusToDiscord()
+    
+    print("🔓 Enabling noclip...")
+    enableNoclip()
+    
+    print("🔍 Searching for", TARGET_ORE_NAME, "...")
+    local locations = findAllBasaltRocks()
+    
+    print("📍 Found", #locations, "ore locations")
+    
+    if #locations == 0 then
+        stats.status = "No ores found!"
+        sendStatusToDiscord()
+        disableNoclip()
+        isRunning = false
+        print("❌ No ores found, stopping")
+        return
+    end
+    
+    for i, location in ipairs(locations) do
+        if not isRunning then 
+            print("⛔ Mining stopped by user")
+            break 
+        end
+        
+        print(string.format("📌 [%d/%d] Processing location: %s", i, #locations, location.name))
+        
+        stats.status = "Traveling [" .. i .. "/" .. #locations .. "]"
+        sendStatusToDiscord()
+        
+        if not oreExists(location) then 
+            print("⏭️ Ore doesn't exist, skipping")
+            continue 
+        end
+        
+        print("✈️ Flying to ore...")
+        local success = floatToPosition(location.position)
+        if not success then 
+            print("❌ Failed to reach location")
+            continue 
+        end
+        
+        print("✅ Arrived at ore location")
+        mineAndWait(location)
+        task.wait(1)
+    end
+    
+    stats.status = "Complete!"
+    sendStatusToDiscord()
+    sendOresToDiscord()
+    stopMining()
+    disableNoclip()
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+    
+    isRunning = false
+    print("🏁 ==================== MINING COMPLETE ====================")
+end
+
+-- Main Tab Controls
+MainTab:Dropdown{
+    Name = "Select Ore Type",
+    StartingText = "Basalt Rock",
+    Description = "Choose which ore to mine",
+    Items = {
+        "Volcanic Rock",
+        "Basalt Rock",
+        "Basalt Vein",
+        "Basalt Core"
+    },
+    Callback = function(selectedOre)
+        TARGET_ORE_NAME = selectedOre
+        sendStatusToDiscord()
+        GUI:Notification{
+            Title = "Ore Changed",
+            Text = "Now targeting: " .. selectedOre,
+            Duration = 3
+        }
+    end
+}
+
+MainTab:Button{
+    Name = "Start Auto Mining",
+    Description = "Begin automated mining process",
+    Callback = function()
+        if not isRunning then
+            task.spawn(execute)
+            GUI:Notification{
+                Title = "Auto Miner",
+                Text = "Mining started!",
+                Duration = 3
+            }
+        end
+    end
+}
+
+MainTab:Button{
+    Name = "Stop Mining",
+    Description = "Stop the auto mining process",
+    Callback = function()
+        isRunning = false
+        stopMining()
+        disableNoclip()
+        stats.status = "Stopped by user"
+        sendStatusToDiscord()
+        GUI:Notification{
+            Title = "Auto Miner",
+            Text = "Mining stopped!",
+            Duration = 3
+        }
+    end
+}
+
+-- Settings Tab
+SettingsTab:Slider{
+    Name = "Mining Distance",
+    Default = MINING_DISTANCE,
+    Min = -10,
+    Max = 10,
+    Callback = function(value)
+        MINING_DISTANCE = value
+    end
+}
+
+SettingsTab:Slider{
+    Name = "Float Speed",
+    Default = FLOAT_SPEED,
+    Min = 20,
+    Max = 80,
+    Callback = function(value)
+        FLOAT_SPEED = value
+    end
+}
+
+SettingsTab:Slider{
+    Name = "Mob Detection Range",
+    Default = MOB_CHECK_DISTANCE,
+    Min = 10,
+    Max = 50,
+    Callback = function(value)
+        MOB_CHECK_DISTANCE = value
+    end
+}
+
+SettingsTab:Slider{
+    Name = "Click Delay (seconds)",
+    Default = CLICK_DELAY,
+    Min = 0.1,
+    Max = 2,
+    Callback = function(value)
+        CLICK_DELAY = value
+    end
+}
+
+-- Discord Tab
+DiscordTab:TextBox{
+    Name = "Discord Webhook URL",
+    Description = "Enter your ngrok URL",
+    Callback = function(value)
+        DISCORD_URL = value
+        previousOres = getStashOres()
+        sendGoldToDiscord()
+        sendOresToDiscord()
+        GUI:Notification{
+            Title = "Discord Connected",
+            Text = "URL saved! Data synced!",
+            Duration = 3
+        }
+    end
+}
+
+DiscordTab:Button{
+    Name = "Test Connection",
+    Description = "Check if Discord bot is connected",
+    Callback = function()
+        sendStatusToDiscord()
+        sendGoldToDiscord()
+        sendOresToDiscord()
+        GUI:Notification{
+            Title = "Test",
+            Text = "All data sent to Discord!",
+            Duration = 3
+        }
+    end
+}
+
+DiscordTab:Button{
+    Name = "Send Gold Now",
+    Description = "Manually update gold",
+    Callback = function()
+        sendGoldToDiscord()
+        GUI:Notification{
+            Title = "Gold Sent",
+            Text = "Gold updated!",
+            Duration = 2
+        }
+    end
+}
+
+DiscordTab:Button{
+    Name = "Send Ores Now",
+    Description = "Manually update ores (open stash first!)",
+    Callback = function()
+        sendOresToDiscord()
+        GUI:Notification{
+            Title = "Ores Sent",
+            Text = "Ores updated!",
+            Duration = 2
+        }
+    end
+}
+
+-- Status Tab
+local statusLabel = StatusTab:Label{
+    Name = "Status",
+    Description = "Idle"
+}
+
+local oresLabel = StatusTab:Label{
+    Name = "Ores Mined",
+    Description = "0"
+}
+
+local mobsLabel = StatusTab:Label{
+    Name = "Mobs Killed",
+    Description = "0"
+}
+
+local discordLabel = StatusTab:Label{
+    Name = "Discord",
+    Description = "Not connected"
+}
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if DISCORD_URL ~= "" then
+            discordLabel.Description = "Connected ✅"
+        else
+            discordLabel.Description = "Not connected ❌"
+        end
+    end
+end)
+
+print(" Auto-Miner with Full Discord Integration Loaded!")
